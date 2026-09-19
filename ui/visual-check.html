@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>layout check</title></head>
+<body><div id="root">加载中…</div>
+<script>
+const items = [
+  { id:'r1', type:'request', name:'滚动条检查', method:'GET', url:'https://api.example.com/users' },
+]
+window.dbxPlugin = {
+  ready: Promise.resolve(),
+  context: { connectionId:'conn-1', connectionName:'local' },
+  locale: 'zh-CN', theme: { appearance:'light' },
+  invoke: async m => {
+    if (m === 'collection/list') return { items }
+    if (m === 'history/list') return { items:[] }
+    return {}
+  },
+  onContext: () => () => {},
+}
+</script>
+<script type="module" src="/src/main.tsx"></script></body></html>

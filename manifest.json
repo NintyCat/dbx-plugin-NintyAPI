@@ -1,0 +1,95 @@
+{
+  "$schema": "https://raw.githubusercontent.com/t8y2/dbx/main/plugins/manifest.schema.json",
+  "manifest_version": 1,
+  "id": "io.dbx.nintyapi",
+  "name": "NintyAPI",
+  "version": "0.1.7",
+  "publisher": "nintycat",
+  "description": "Send HTTP requests, organize API collections and debug responses from DBX.",
+  "icon": "assets/plugin.png",
+  "engines": {
+    "dbx": ">=0.5.68",
+    "host_api": "1"
+  },
+  "permissions": [],
+  "entrypoints": {
+    "backend": {
+      "executable": "bin/dbx-plugin-nintyapi"
+    },
+    "ui": {
+      "root": "ui/dist",
+      "entry": "ui/dist/index.html"
+    }
+  },
+  "contributions": [
+    {
+      "type": "connection-provider",
+      "id": "io.dbx.nintyapi.connection",
+      "label": "NintyAPI",
+      "icon": "assets/plugin.png",
+      "database_type": "rest",
+      "description": "Create an API project with an optional base URL.",
+      "fields": [
+        {
+          "key": "display_name",
+          "label": "Project name",
+          "type": "text",
+          "default": "NintyAPI",
+          "binding": "name",
+          "required": true
+        },
+        {
+          "key": "base_url",
+          "label": "Base URL",
+          "type": "text",
+          "binding": "config",
+          "placeholder": "https://api.example.com/v1",
+          "description": "Optional. Relative request URLs are joined with it."
+        }
+      ],
+      "workbench": "io.dbx.nintyapi.workbench",
+      "capabilities": [
+        "test",
+        "connect",
+        "disconnect"
+      ]
+    },
+    {
+      "type": "workbench",
+      "id": "io.dbx.nintyapi.workbench",
+      "label": "API Workbench",
+      "description": "Send requests and manage API collections."
+    },
+    {
+      "type": "context-menu",
+      "id": "io.dbx.nintyapi.open-workbench",
+      "label": "Open API Workbench",
+      "menu": "connection"
+    }
+  ],
+  "localizations": {
+    "zh-CN": {
+      "name": "NintyAPI",
+      "description": "在 DBX 中发送 HTTP 请求、管理接口集合并调试响应。",
+      "contributions": {
+        "io.dbx.nintyapi.connection": {
+          "label": "NintyAPI",
+          "fields": {
+            "display_name": {
+              "label": "项目名称"
+            },
+            "base_url": {
+              "label": "Base URL"
+            }
+          }
+        },
+        "io.dbx.nintyapi.workbench": {
+          "label": "API 工作台"
+        },
+        "io.dbx.nintyapi.open-workbench": {
+          "label": "打开 API 工作台"
+        }
+      }
+    }
+  }
+}

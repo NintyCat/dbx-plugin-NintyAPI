@@ -1,0 +1,1813 @@
+/* REST Client — DBX-native workbench styling.
+   The palette is DBX's own: the host injects its design tokens into this
+   document, so the workbench follows the theme — including a custom palette
+   picked in DBX's settings. The literals here are fallbacks for hosts that
+   push nothing.
+   The structural surfaces paint the host's canvas colour, from the host's own
+   token — one canvas for tree and editor alike, separated by a border. Two
+   layers would be wrong in either direction: painting nothing leaves the area
+   to whatever sits behind the iframe, which is not guaranteed to follow the
+   theme, while painting an opaque colour of our own covers a DBX background
+   image (设置 → 背景图). So the tokens paint, and the background image gets the
+   one thing it needs: while one is active the bridge overrides both canvases to
+   `transparent` (lib/hostSurface.ts) and keeps them that way for the rest of
+   the session, because the host stops marking the canvas translucent as soon as
+   the theme changes.
+   Raised surfaces — cards, menus, editors, the response body — paint the host's
+   card token, which DBX keeps opaque over a wallpaper exactly as it keeps its
+   own popovers opaque; hover and pressed states use the host's muted tone. */
+:root {
+  --accent: var(--color-primary, #3d7eff);
+  /* Text on a filled accent surface. The host pairs its primary with its own
+     foreground token, and the pairing is not always white — on a dark theme
+     DBX's primary is a light blue whose text is near-black. Hardcoding white
+     left the label unreadable there. */
+  --accent-fg: var(--color-primary-foreground, #fff);
+  /* Toward the foreground either way: darker on a light theme, lighter on a
+     dark one. */
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, var(--color-foreground, #24262c));
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --ring: var(--color-ring, color-mix(in srgb, var(--accent) 35%, transparent));
+  --bg: var(--dbx-plugin-bg, var(--color-background, #f6f7f9));
+  --canvas: var(--dbx-plugin-canvas, var(--color-background, #ffffff));
+  --panel: var(--color-card, #ffffff);
+  --panel-2: var(--color-muted, #eef0f4);
+  --sunken: var(--color-card, #ffffff);
+  --border: var(--color-border, #e3e5ea);
+  --border-strong: color-mix(in srgb, var(--color-border, #e3e5ea) 60%, var(--color-foreground, #24262c));
+  --text: var(--color-foreground, #24262c);
+  --text-dim: var(--color-muted-foreground, #7d808a);
+  --ok: #189a6c;
+  --warn: #d9860a;
+  /* The host pushes its destructive colour into this document, so the plugin's
+     own name for it takes the host's value: a delete button then reads the same
+     red as DBX's own. */
+  --bad: var(--color-destructive, #e5484d);
+  /* Text on a filled destructive surface, paired by the host for the same
+     reason as --accent-fg. */
+  --bad-fg: var(--color-destructive-foreground, #fff);
+  --shadow: 0 1px 2px rgba(16, 20, 28, 0.05);
+  --shadow-pop: 0 12px 40px rgba(16, 20, 28, 0.16);
+  /* Corner radius comes from the host too — `--radius-md` is part of the token
+     set DBX stamps on this document. Declaring our own would drift from every
+     other control in the app the moment the user picks a rounder palette. */
+  --radius: var(--radius-md, 6px);
+  /* Stacking order, lowest first. Popovers sit in the page; everything after
+     the dialog is transient and must be able to land on top of one — a dialog
+     can host a text field (so it can be right-clicked) and buttons with titles
+     (so a tooltip can appear over it), and both would be swallowed by the
+     backdrop if they were ranked below it. */
+  --z-pop: 40;
+  --z-dialog: 100;
+  --z-menu: 110;
+  --z-tooltip: 120;
+  --z-toast: 130;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --get: #3d7eff;
+  --post: #189a6c;
+  --put: #d9860a;
+  --patch: #8f6bd6;
+  --delete: #e5484d;
+}
+:root[data-theme='dark'] {
+  /* Host tokens carry their own dark values, so only the fallbacks this plugin
+     keeps for token-less hosts differ from the light block. */
+  --accent: var(--color-primary, #5b9bff);
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, var(--color-foreground, #d8dade));
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --ring: var(--color-ring, color-mix(in srgb, var(--accent) 40%, transparent));
+  --panel: var(--color-card, #26272c);
+  --panel-2: var(--color-muted, #303238);
+  --sunken: var(--color-card, #1c1d21);
+  --border: var(--color-border, #383a41);
+  --border-strong: color-mix(in srgb, var(--color-border, #383a41) 60%, var(--color-foreground, #d8dade));
+  --text: var(--color-foreground, #d8dade);
+  --text-dim: var(--color-muted-foreground, #9295a0);
+  --ok: #3fce9c;
+  --warn: #f5a623;
+  /* Host value, like the light block: DBX's dark destructive is its own red and
+     hardcoding one here would drift from it. */
+  --bad: var(--color-destructive, #ff6b6e);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --get: #6ba6ff;
+  --post: #3fce9c;
+  --put: #f5a623;
+  --patch: #b79bef;
+  --delete: #ff6b6e;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  /* Selection is off by default and turned back on for the text worth copying.
+     A workbench is mostly chrome — tab names, tree rows, buttons, counts — and
+     dragging across it to reach one value used to smear a highlight over all of
+     it, which reads as a broken page rather than a selection. Denying it at the
+     root and re-allowing the exceptions keeps the list of what *can* be
+     selected explicit, so a new label cannot silently become selectable.
+     The exceptions below are the read-only text a user actually copies: the
+     response body and its error, the generated code, the header/cookie values,
+     and the notice (which carries error text). Inputs and textareas keep it
+     too — that is the one place a selection is also an editing affordance. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea,
+[contenteditable],
+.resp-body pre,
+.resp-error,
+.dlg-code,
+.headers-table,
+.notice {
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* The request body's highlighted layer sits behind a transparent textarea and
+   holds no readable text of its own — the textarea owns the selection there. */
+.code-editor pre {
+  user-select: none;
+  -webkit-user-select: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease,
+    color 0.12s ease;
+}
+/* Form controls carry the host's own classes (dbx-input, dbx-textarea,
+   dbx-select) so DBX styles them like every other field in the app. This skin
+   is what hosts without that component kit get — the development host — and it
+   also covers the moment before the probe in lib/hostSurface.ts has spoken.
+   The gate must sit inside :where(): a bare :root:not(...) ancestor lifts the
+   selector above every component rule that widens a control — .panel-search
+   input's icon padding, .code-editor .code-input's transparent overlay — and
+   the skin then paints over them (icon under placeholder text, highlight layer
+   hidden). Wrapped, it scores like the plain `input, textarea` it replaced and
+   the component rules win again. */
+:where(:root:not([data-dbx-kit='present'])) input,
+:where(:root:not([data-dbx-kit='present'])) textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+:where(:root:not([data-dbx-kit='present'])) input:focus-visible,
+:where(:root:not([data-dbx-kit='present'])) textarea:focus-visible,
+button:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+:where(:root:not([data-dbx-kit='present'])) input:focus,
+:where(:root:not([data-dbx-kit='present'])) textarea:focus {
+  border-color: var(--accent);
+}
+/* Dropdowns (components/Select.tsx): a trigger that reads like the other
+   controls, plus the floating list DBX opens — chosen item ticked, row under
+   the pointer highlighted. A native <select> cannot be given that popup, and
+   the host's documented dbx-select class is not in the shipping host, so the
+   markup is this plugin's and the colours are the host's tokens. */
+.pick {
+  position: relative;
+  display: inline-flex;
+}
+.pick-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.pick-trigger:hover {
+  border-color: var(--border-strong);
+}
+.pick-trigger:focus-visible,
+.pick-trigger[aria-expanded='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.pick-caret {
+  color: var(--text-dim);
+  flex: none;
+}
+.pick-pop {
+  /* Anchored to the viewport, not to the trigger's box. The request pane is a
+     scroll container, and a list laid out inside it would be clipped by the
+     pane and counted into its scrollable height — opening the method picker
+     would add the whole list to the pane's scroll range and leave the rows past
+     the edge unreachable. Fixed placement escapes both, and components/Select
+     keeps it on its trigger while it is open. Its size and offset come from the
+     trigger, so only the anchoring is declared here. */
+  position: fixed;
+  z-index: var(--z-pop);
+  /* Rows run edge to edge, so the highlighted one is exactly as wide as the
+     trigger — the way DBX's own list reads. That leaves no room for a scrollbar
+     strip, and none is needed: the panel's width is pinned by the trigger, so
+     the list scrolls with the wheel while its bar stays hidden. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  /* A frosted panel, the way DBX opens its own: the host's card colour with
+     some of it taken out, over a blur of whatever sits behind. Both halves come
+     from the theme — the colour from the token, the blur from the backdrop — so
+     a theme switch, a custom palette or a wallpaper all read through it. */
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  /* The trigger can carry a method colour; the list must not inherit it. */
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.pick-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pick-opt > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pick-opt:hover {
+  background: var(--panel-2);
+}
+/* The chosen row is marked by its check icon — and, for methods, its label
+   colour — never by a background wash; the list stays text on the panel. */
+.pick-opt > svg {
+  color: var(--accent);
+  flex: none;
+}
+/* Scrollbars are thin and low-contrast, and always on screen. Styling
+   ::-webkit-scrollbar is what puts our bar there at all: left alone, this
+   engine draws the platform's classic bar, which is both wider than these
+   panes want and darker than the surfaces around it.
+   The bar stays painted rather than appearing on hover. The engine does not
+   repaint a scrollbar for a CSS change — a rule that recolours the thumb, even
+   with !important, leaves the already-painted bar exactly as it was — so a
+   hover-reveal cannot be built from CSS here, and a JS one would have to move
+   the content 8px every time the pointer crossed a pane. A quiet always-on bar
+   costs nothing and never shifts the text.
+   The strip is reserved either way: every vertical scroller below asks for
+   `overflow-y: scroll`, so the 8px is held open whether or not there is
+   anything to scroll, and content width never moves. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  /* A softer tone than the borders around it: the bar should read as a hint
+     that there is more to see, not as a line drawn on the pane. */
+  background: color-mix(in srgb, var(--border-strong) 50%, transparent);
+  border-radius: 4px;
+  /* The transparent border insets the thumb, so it floats in the strip with
+     clearance at both edges instead of touching the pane's border. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* Confirm buttons follow 发送's quiet bordered look: no solid fill, the role
+   lives in the text colour — accent for confirm, red for danger. */
+button.primary {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+}
+button.primary:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+button.primary.sm {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+button.danger {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--bad);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+}
+button.danger:hover {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+button.ghost {
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+button.ghost:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+button.sm {
+  font-size: 12px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+}
+.icon-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.icon-btn.framed {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.icon-btn.accent {
+  color: var(--accent);
+}
+.spacer {
+  flex: 1;
+}
+
+.boot {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text-dim);
+}
+.boot-logo {
+  color: var(--accent);
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.columns {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- sidebar: single column with visible tabs ---------- */
+.sb {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Width comes from the splitter drag: dragging left lets the editor slide
+     over the tree until it is gone, right widens it up to its cap (mirrors
+     App's MAX_SIDEBAR_WIDTH / MIN_EDITOR_WIDTH, and keeps the grip on screen
+     when a stored width outgrew the window). */
+  width: var(--sb-width, 264px);
+  max-width: min(640px, max(240px, calc(100% - 320px)));
+  overflow: hidden;
+  flex: none;
+  background: var(--bg);
+}
+.sb-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.sb-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+}
+.sb-tab:hover {
+  color: var(--text);
+}
+.sb-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 10px 4px;
+}
+.panel-title {
+  font-weight: 600;
+}
+.panel-sub {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.add-menu {
+  position: relative;
+}
+.add-menu .menu-open {
+  background: var(--accent-soft);
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-pop);
+  min-width: 148px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+}
+.menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.menu-item svg {
+  color: var(--text-dim);
+  flex: none;
+}
+.menu-item:hover svg {
+  color: var(--accent);
+}
+/* Right-click menu: fixed to the viewport so it escapes the tree's scroll box. */
+.ctx-menu {
+  position: fixed;
+  right: auto;
+  z-index: var(--z-menu);
+}
+.menu-item.danger {
+  color: var(--bad);
+  /* Neutralize button.danger's fill and border; a menu row stays flat. */
+  background: transparent;
+  border: none;
+}
+.menu-item.danger svg {
+  color: var(--bad);
+}
+.menu-item.danger:hover {
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: var(--bad);
+  filter: none;
+}
+/* Actions that exist but cannot apply to the current target. */
+.menu-item:disabled,
+.menu-item:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+  opacity: 0.45;
+  cursor: default;
+}
+.menu-item:disabled svg,
+.menu-item:disabled:hover svg {
+  color: var(--text-dim);
+}
+.menu-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--border);
+}
+.panel-search {
+  position: relative;
+  margin: 4px 10px 6px;
+}
+/* Collapsible section headers: 快捷请求 / 默认模块. */
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Left edge and gap mirror the tree rows: the caret lands on the row
+     chevron column and the title starts on the folder-icon column. */
+  padding: 10px 10px 4px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+.group-head svg {
+  color: var(--text-dim);
+  /* Center the 12px glyph in the 14px chevron column the rows use. */
+  margin: 0 1px;
+  flex: none;
+}
+/* A folder's request count reads as part of the title — "目录 (3)" — directly
+   after the name, and never truncates: the name shrinks instead. */
+.row-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+.row-count {
+  /* Fainter than the usual dim text: the number is a whisper next to the
+     title, not a second label competing with it. */
+  color: color-mix(in srgb, var(--text-dim) 65%, transparent);
+  font-size: 11px;
+  flex: none;
+}
+.panel-search input {
+  width: 100%;
+  padding-left: 28px;
+  height: 28px;
+  background: var(--panel);
+}
+.search-ico {
+  position: absolute;
+  left: 9px;
+  top: 7px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.rows {
+  flex: 1;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  padding: 2px 6px 24px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border-radius: var(--radius);
+  padding: 5px 6px;
+  /* The ops button is display:none until hover, so rows would otherwise sit a
+     few pixels shorter whenever the pointer is elsewhere — hold the height. */
+  min-height: 32px;
+  text-align: left;
+  cursor: pointer;
+  /* Anchors the drop indicator's straight line. */
+  position: relative;
+}
+.row:hover {
+  background: var(--panel-2);
+}
+.row:hover .row-ops {
+  display: flex;
+}
+.row.current {
+  background: var(--accent-soft);
+}
+.row.current .row-name {
+  color: var(--accent);
+}
+/* Drop markers. Landing above or below shows the same accent hairline, only
+   its edge moves; landing inside a folder gets the louder treatment — soft
+   fill plus an accent outline — because "into" is a different kind of drop.
+   The hairline is a pseudo-element rather than an inset shadow: a shadow
+   follows the row's rounded corners and bends the line's ends. Its span runs
+   from the row's content start — the deeper the row, the shorter the line,
+   which is what shows the drop is going inside a nested folder. */
+.tree-row {
+  padding-left: var(--indent, 18px);
+}
+.row.drop-above::after,
+.row.drop-below::after {
+  content: '';
+  position: absolute;
+  /* --drop-out: how many levels the pull-left gesture climbed; each level
+     stretches the line one indent column longer. The line never moves. */
+  left: calc(var(--indent, 18px) - var(--drop-out, 0) * 12px);
+  right: 6px;
+  height: 2px;
+  background: var(--accent);
+}
+/* A filled dot caps the line's start: the insertion point is a place, and
+   this is where it is. It rides the line's left end as the pull-left gesture
+   stretches it. */
+.row.drop-above::before,
+.row.drop-below::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--indent, 18px) - var(--drop-out, 0) * 12px - 4px);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.row.drop-above::before {
+  top: -3px;
+}
+.row.drop-below::before {
+  bottom: -3px;
+}
+.row.drop-above::after {
+  top: 0;
+}
+.row.drop-below::after {
+  bottom: 0;
+}
+.row.drop-into {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* The carried row dims, and the document stops selecting text mid-gesture. */
+.tree-row.dragging {
+  opacity: 0.45;
+}
+body.tree-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}
+/* The translucent stand-in that trails the pointer: the row's own look,
+   lifted onto a card. pointer-events:none keeps it out of the drop hit-test,
+   and its position is set directly by the drag handlers. */
+.drag-ghost {
+  position: fixed;
+  z-index: var(--z-pop);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* Width, left and top come from the source row's own box, set inline by the
+     drag handlers — the stand-in is exactly as wide as the row it stands for. */
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  opacity: 0.5;
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+}
+.drag-ghost-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A very light vertical rail at the indent column the stretched line points
+   at — the target level, aligned with the folder it lands after. It spans
+   from the hovered row down to the bottom of the list; position and height
+   are set directly by the drag handlers. */
+.drop-guide {
+  position: fixed;
+  display: none;
+  width: 1px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+/* A row's ops button takes no layout space until hover: the name runs the full
+   row width, and hovering shrinks the name instead of reserving an empty slot. */
+.row-ops {
+  display: none;
+}
+.row-ops .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+.row-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+/* The tree's folder icon wears a softer grey than the usual dim text; the
+   method label keeps full strength. */
+.tree-row .row-ico {
+  color: color-mix(in srgb, var(--text-dim) 70%, transparent);
+}
+/* Request rows lead with their HTTP method instead of a file icon. */
+.row-ico .method {
+  padding: 3px 0;
+}
+.row-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.row-name {
+  font-size: 13px;
+  /* The unselected name sits a step below full-strength text: prominent,
+     not shouting. */
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 80%, transparent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Second line of a history row: when the request was sent. */
+.row-sub {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tw {
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  flex: none;
+}
+.m-get {
+  color: var(--get);
+  background: color-mix(in srgb, var(--get) 12%, transparent);
+}
+.m-post {
+  color: var(--post);
+  background: color-mix(in srgb, var(--post) 12%, transparent);
+}
+.m-put {
+  color: var(--put);
+  background: color-mix(in srgb, var(--put) 14%, transparent);
+}
+.m-patch {
+  color: var(--patch);
+  background: color-mix(in srgb, var(--patch) 14%, transparent);
+}
+.m-delete {
+  color: var(--delete);
+  background: color-mix(in srgb, var(--delete) 12%, transparent);
+}
+.m-head,
+.m-options,
+.m-trace {
+  color: var(--text-dim);
+  background: var(--panel-2);
+}
+/* List rows show the method as plain colored text: the tinted pill belongs to
+   the request line's picker, which keeps it. Declared after the .m-* colours
+   so the reset wins over their backgrounds. */
+.method {
+  font: 600 11px/1 var(--mono);
+  width: 52px;
+  background: none;
+  flex: none;
+}
+.st-ok {
+  color: var(--ok);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.st-bad {
+  color: var(--bad);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.pane-empty {
+  color: var(--text-dim);
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ---------- main ---------- */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+}
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 8px;
+  min-height: 38px;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  max-width: 220px;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.tab-close {
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+.tab-close:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+/* The pin sits where the close control would be, and is pressed the same way to
+   unpin — so it takes the same hover treatment rather than looking inert. */
+.tab-pin {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text-dim);
+}
+.tab-pin:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.tab.pinned.active .tab-pin {
+  color: var(--accent);
+}
+.tab-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+.welcome-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---------- request editor (height is user-draggable) ---------- */
+/* The pane is a fixed frame — the request line and the tab strip — around a
+   panel that owns the scrolling, the way the response pane is already built.
+   The splitter's floor is measured down to the tab strip's underline, so the
+   frame has to stay put however tall the panel's content grows: a long header
+   list or body scrolls inside .req-body instead of carrying the tabs off the
+   top. The pane itself never scrolls, so dragging the splitter to the top
+   leaves nothing to scroll — the frame stays where it is and the panel below it
+   is simply covered by the response. The few pixels of the panel's own padding
+   that sit below the strip's underline are clipped rather than scrolled to,
+   which is what keeps that last drag position from revealing a stray scroll
+   range. */
+.editor-wrap {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.req {
+  padding: 12px 14px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+}
+/* The frame holds its natural height: a pane too short for it scrolls rather
+   than squeezing the strip down to a sliver. */
+.req-line,
+.req-tabs {
+  flex: none;
+}
+.req-line {
+  display: flex;
+  gap: 8px;
+}
+.method-select .pick-trigger {
+  width: 108px;
+  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.method-select .pick-value {
+  flex: 1;
+  text-align: center;
+}
+/* The method colour lives on the label only: the trigger keeps the plain
+   panel background every other control uses, the list rows stay neutral too. */
+.method-select.m-get .pick-trigger {
+  color: var(--get);
+}
+.method-select.m-post .pick-trigger {
+  color: var(--post);
+}
+.method-select.m-put .pick-trigger {
+  color: var(--put);
+}
+.method-select.m-patch .pick-trigger {
+  color: var(--patch);
+}
+.method-select.m-delete .pick-trigger {
+  color: var(--delete);
+}
+.method-select.m-head .pick-trigger,
+.method-select.m-options .pick-trigger,
+.method-select.m-trace .pick-trigger {
+  color: var(--text-dim);
+}
+/* The open list keeps the same colouring: each option's label wears its
+   method's hue, and nothing else — the shared m-* classes carry a tinted
+   background for the tree rows, which the list must not inherit. */
+.pick-opt.m-get {
+  color: var(--get);
+  background: none;
+}
+.pick-opt.m-post {
+  color: var(--post);
+  background: none;
+}
+.pick-opt.m-put {
+  color: var(--put);
+  background: none;
+}
+.pick-opt.m-patch {
+  color: var(--patch);
+  background: none;
+}
+.pick-opt.m-delete {
+  color: var(--delete);
+  background: none;
+}
+.pick-opt.m-head,
+.pick-opt.m-options,
+.pick-opt.m-trace {
+  color: var(--text-dim);
+  background: none;
+}
+.url-input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+  height: 30px;
+}
+button.send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* Same quiet bordered look as the body-type chips; keeps the row's 30px
+     height so it still lines up with the save buttons beside it. */
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  height: 30px;
+  font-size: 12px;
+  flex: none;
+}
+button.send:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+button.send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* Save / save-as text buttons beside 发送. */
+.req-line .ghost {
+  height: 30px;
+  padding: 0 10px;
+  color: var(--text);
+  flex: none;
+}
+.req-line .ghost.dirty {
+  color: var(--accent);
+}
+/* Save is unavailable until a new request has a URL to be named after. */
+.req-line .ghost:disabled,
+.req-line .ghost:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+  opacity: 0.5;
+  cursor: default;
+}
+.req-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  /* A window narrow enough to squeeze the pane past its 320px floor pushes the
+     strip's tools off the right. The strip scrolls sideways for them, the way
+     the document tab bar above already does, so they stay reachable instead of
+     being clipped by the frame. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+/* One line, so the strip scrolls rather than the labels folding onto a second
+   row that would change the frame's height mid-drag. */
+.req-tabs > button {
+  flex: none;
+  white-space: nowrap;
+}
+.req-tabs > button,
+.resp-tabs button {
+  padding: 7px 11px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+}
+.req-tabs > button:hover,
+.resp-tabs button:hover {
+  color: var(--text);
+}
+.req-tabs > button.active,
+.resp-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tab-tool {
+  font-size: 12px;
+}
+/* The active tab owns the space below the tab strip and is the only part of
+   the pane that scrolls: panels that can grow (a long header list) scroll here
+   while the request line and the tab strip stay put, and panels that manage
+   their own overflow (the body editor) still stretch with the splitter. */
+.req-body {
+  padding-bottom: 10px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+/* Panels that size to their content — the key/value tables, auth, settings —
+   keep their natural height so it is the panel that scrolls. A flex item would
+   otherwise shrink to the pane and spill its rows out of an unpainted box. */
+.req-body > * {
+  flex: none;
+}
+.req-body > .body-editor {
+  flex: 1;
+}
+
+.kv-editor {
+  min-height: 132px;
+}
+.kv-editor table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.kv-editor th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 11px;
+  padding: 2px 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.kv-editor th:nth-child(1) {
+  width: 30px;
+}
+.kv-editor th:nth-child(2) {
+  width: 38%;
+}
+.kv-editor th:nth-child(4) {
+  width: 32px;
+}
+.kv-editor td {
+  padding: 2px 6px;
+}
+.kv-editor td input:not([type='checkbox']) {
+  width: 100%;
+  height: 28px;
+}
+.kv-on {
+  width: 26px;
+  text-align: center;
+}
+.kv-editor input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+.kv-op {
+  width: 28px;
+}
+.kv-add {
+  margin: 4px 0 0 6px;
+  font-size: 12px;
+}
+
+.body-types {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 2px 0 8px;
+}
+.chip {
+  /* The host's radius scale stops at 6px; nothing in DBX rounds a control to a
+     full pill. These are the body / auth / language selectors, so they take the
+     same corner the rest of the workbench uses. */
+  border-radius: var(--radius);
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.chip:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* Body editor follows the splitter: it fills whatever the request pane has
+   left, and stops shrinking at the text editor's floor below — a shorter pane
+   scrolls (the response pane then covers the hidden part) rather than
+   squeezing the editor into a sliver. */
+.body-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.body-placeholder {
+  flex: 1;
+  min-height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+.body-content {
+  flex: 1;
+  min-height: 130px;
+  width: 100%;
+  padding: 9px 11px;
+  font: 12px/1.6 var(--mono);
+  resize: none;
+  overflow-y: scroll;
+}
+/* Highlighted JSON body: transparent textarea over a colored pre. Both layers
+   MUST keep identical font metrics or caret and text drift apart. */
+.code-editor {
+  position: relative;
+  flex: 1;
+  min-height: 130px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.code-editor:focus-within {
+  border-color: var(--accent);
+}
+.code-editor pre {
+  margin: 0;
+  padding: 9px 11px;
+  font: 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  height: 100%;
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+.code-editor .code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  font: 12px/1.6 var(--mono);
+  padding: 9px 11px;
+  resize: none;
+  overflow-y: scroll;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.code-editor .code-input::placeholder {
+  color: var(--text-dim);
+}
+/* Auth mirrors the body tab's top edge: its type chips sit at the same height
+   as the body ones, so switching tabs doesn't shift the row. */
+.auth-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+}
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.field > span {
+  color: var(--text-dim);
+  min-width: 60px;
+  font-size: 12px;
+}
+.field input {
+  flex: 1;
+  max-width: 420px;
+  height: 28px;
+}
+.field.narrow input {
+  max-width: 140px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.check input {
+  accent-color: var(--accent);
+}
+
+.splitter {
+  height: 10px;
+  flex: none;
+  cursor: row-resize;
+  position: relative;
+  /* Full bleed: the hairline below is the boundary between the request pane and
+     the response pane, and a boundary that stops short of both edges reads as a
+     floating widget rather than a division. The grip stays centred on it. */
+  margin: 2px 0;
+  border-radius: 4px;
+}
+/* The boundary itself — a hairline across the pane, with the grip riding on it
+   so the two read as one control instead of a line and a stray pill. */
+.splitter:not(.v)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--border);
+  transition: background-color 0.12s ease;
+}
+/* Vertical twin of the same hairline. It belongs to the splitter rather than to
+   the sidebar's right edge: the splitter is the whole gap between the panes, so
+   the middle of it is the boundary, and the grip centred there sits on the line
+   exactly as the horizontal one does. A border on the sidebar would hug its own
+   edge and leave the grip floating beside the line. */
+.splitter.v::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background-color 0.12s ease;
+}
+.splitter::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  /* The grip shows only while the pointer is on the splitter or a drag is
+     running. Painted unconditionally it would sit beside the pane's scrollbar —
+     a pill and a bar in the same gap — and read as a second stray control. The
+     hairline above stays put: that one is the boundary between the panes, not a
+     handle, so it is worth showing at rest. */
+  opacity: 0;
+  transition: opacity 0.12s ease, width 0.12s ease, height 0.12s ease,
+    box-shadow 0.12s ease;
+}
+/* While a drag is stuck to the pane's default size, the grip swells and glows:
+   the snap is meant to be seen, not just felt. */
+body.dragging .splitter.snapped::after,
+body.dragging-x .splitter.v.snapped::after {
+  width: 76px;
+  height: 6px;
+  box-shadow: 0 0 8px var(--accent);
+}
+body.dragging-x .splitter.v.snapped::after {
+  width: 6px;
+  height: 76px;
+}
+/* Vertical twin of the splitter, dragging the tree pane's width. */
+.splitter.v {
+  width: 8px;
+  height: auto;
+  align-self: stretch;
+  margin: 0;
+  cursor: col-resize;
+}
+.splitter.v::after {
+  width: 4px;
+  height: 56px;
+}
+/* Covered rather than resized: the tree lays its rows out at its own width and
+   the editor's edge eats into them, so nothing reflows on the way out. */
+.sb > * {
+  min-width: var(--sb-floor, 264px);
+}
+/* Fully covered: the grip widens into the space it freed so it stays easy to
+   grab and drag back open. */
+.app.sb-collapsed .splitter.v {
+  width: 14px;
+}
+/* Hovering a splitter or dragging one reveals its grip. Both axes are covered
+   by the same pair of rules — `.splitter` matches the vertical twin too, and
+   the drag classes are kept for the whole gesture, so the handle does not
+   vanish if the pointer slips off the 8px strip mid-drag. */
+.splitter:hover::after,
+body.dragging .splitter::after,
+body.dragging-x .splitter::after {
+  opacity: 1;
+}
+body.dragging {
+  cursor: row-resize;
+  user-select: none;
+}
+body.dragging-x {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---------- response ---------- */
+.resp {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 14px 14px;
+}
+/* Collapsed: the status row is all that is left. The rest leaves the layout
+   entirely — clipping alone would still let the next row's top edge show
+   through the pane's own padding. */
+/* Our own tooltip: the native title one takes about a second to show. */
+.tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  transform: translateX(-50%);
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
+  /* Titles may carry two lines, such as a request name and its url. */
+  white-space: pre-line;
+  /* A url has no spaces to break at, and must not stretch the box. */
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+.tooltip.above {
+  transform: translate(-50%, -100%);
+}
+/* Toggles in a response header show whether they are on. */
+.resp-head .icon-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.resp.collapsed > .resp-timing,
+.resp.collapsed > .resp-redirects,
+.resp.collapsed > .resp-tabs,
+.resp.collapsed > .resp-body,
+.resp.collapsed > .resp-error,
+.resp.collapsed > .resp-empty {
+  display: none;
+}
+.resp-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 44px 0;
+}
+.resp-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+.status.pill {
+  font: 700 12px var(--mono);
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.status.pill.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.status.pill.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.status.pill.bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+.meta {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.meta.warn {
+  color: var(--warn);
+}
+.resp-timing {
+  display: flex;
+  gap: 14px;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding-bottom: 6px;
+}
+.resp-redirects {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+}
+.resp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.resp-body {
+  flex: 1;
+  overflow-y: scroll;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+  background: var(--sunken);
+}
+.resp-body pre {
+  margin: 0;
+  padding: 10px 12px;
+  font: 12px/1.6 var(--mono);
+  white-space: pre;
+}
+.resp-body pre.wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.resp-error {
+  color: var(--bad);
+}
+.jkey {
+  color: #0550ae;
+}
+.jstr {
+  color: #116329;
+}
+.jnum {
+  color: #953800;
+}
+.jbool {
+  color: #8250df;
+}
+:root[data-theme='dark'] .jkey {
+  color: #7fb5ff;
+}
+:root[data-theme='dark'] .jstr {
+  color: #9ad184;
+}
+:root[data-theme='dark'] .jnum {
+  color: #e8b339;
+}
+:root[data-theme='dark'] .jbool {
+  color: #d48ae0;
+}
+.mtag {
+  color: #0550ae;
+}
+.mattr {
+  color: #953800;
+}
+.mval {
+  color: #116329;
+}
+.mcmt {
+  color: #6e7781;
+}
+.mdoctype {
+  color: #8250df;
+}
+:root[data-theme='dark'] .mtag {
+  color: #7fb5ff;
+}
+:root[data-theme='dark'] .mattr {
+  color: #e8b339;
+}
+:root[data-theme='dark'] .mval {
+  color: #9ad184;
+}
+:root[data-theme='dark'] .mcmt {
+  color: #8b949e;
+}
+:root[data-theme='dark'] .mdoctype {
+  color: #d48ae0;
+}
+.cookies-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.headers-table td.cookie-from {
+  color: var(--text-dim);
+  white-space: nowrap;
+  width: 1%;
+}
+.headers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px var(--mono);
+}
+.headers-table td {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.headers-table td:first-child {
+  color: var(--text-dim);
+  white-space: nowrap;
+  width: 220px;
+}
+
+.notice {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-pop);
+  max-width: 70%;
+  word-break: break-all;
+  z-index: var(--z-toast);
+}
+
+/* ---------- dialogs ---------- */
+.dlg-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 16vh;
+  z-index: var(--z-dialog);
+}
+.dlg {
+  width: 440px;
+  max-width: 92vw;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-pop);
+}
+.dlg-wide {
+  width: 720px;
+}
+.dlg h3 {
+  margin: 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dlg h3.danger {
+  color: var(--bad);
+}
+.dlg input,
+.dlg textarea {
+  width: 100%;
+}
+.dlg .pick,
+.dlg .pick-trigger {
+  width: 100%;
+}
+.dlg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* Dialog inputs mirror the auth tab's label-left rows. The multiline row
+   top-aligns the label and shifts it down to the textarea's first text line. */
+.dlg .field textarea {
+  flex: 1;
+  min-height: 96px;
+}
+.dlg .field.multi {
+  align-items: flex-start;
+}
+.dlg .field.multi > span {
+  padding-top: 7px;
+}
+.dlg-field > span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.dlg textarea {
+  font: 12px/1.6 var(--mono);
+  resize: vertical;
+}
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dlg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dlg-code {
+  margin: 0;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: 12px/1.6 var(--mono);
+  max-height: 420px;
+  overflow-y: scroll;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+/* 环境配置: radio + name + base URL rows. The columns line up across rows so
+   the radio column reads as one switchable list. */
+.env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* A long list grows the dialog past the window; the list scrolls instead. */
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.env-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.env-row input[type='radio'] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.env-row .env-name {
+  flex: none;
+  width: 34%;
+  height: 28px;
+  font-size: 12px;
+}
+.env-row .env-base {
+  flex: 1;
+  height: 28px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.env-row .icon-btn {
+  flex: none;
+}
+.env-head {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding-bottom: 2px;
+}
+/* The header labels sit over the columns they name: the first cell matches the
+   radio's box, the second the name input's fixed width. */
+.env-head span:nth-child(1) {
+  width: 14px;
+}
+.env-head span:nth-child(2) {
+  width: 34%;
+}
+.env-none {
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.env-none:hover {
+  color: var(--text);
+}
+.env-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.env-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}

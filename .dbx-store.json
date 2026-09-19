@@ -1,0 +1,11 @@
+{
+  "name": "NintyAPI",
+  "description": "在 DBX 里调试 HTTP 接口：接口集合树、完整请求历史（参数与响应一并留存）、cURL 互转、代码生成，分栏可拖拽，剪贴板与右键菜单都可用。",
+  "icon": "assets/plugin.svg",
+  "tags": ["http", "api", "rest", "testing", "debug"],
+  "permissions": [],
+  "source": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
+  "homepage": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
+  "license": "Apache-2.0",
+  "releaseNotes": "首个 NintyAPI 版本：接口集合管理、请求历史回放、cURL 导入导出、代码生成、可拖拽分栏与快捷右键菜单。"
+}
