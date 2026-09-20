@@ -7,5 +7,5 @@
   "source": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "homepage": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "license": "Apache-2.0",
-  "releaseNotes": "首个 NintyAPI 版本：接口集合管理、请求历史回放、cURL 导入导出、代码生成、可拖拽分栏与快捷右键菜单。"
+  "releaseNotes": "0.1.8：更换插件图标 —— 深色圆角底上的请求/响应双箭头，与 NintyShell 统一为同一视觉家族，小尺寸下更清晰。"
 }
