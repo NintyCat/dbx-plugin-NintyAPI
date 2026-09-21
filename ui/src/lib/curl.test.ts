@@ -75,3 +75,41 @@ describe('collection node shape', () => {
     expect(request.parentId).toBe('f1')
   })
 })
+
+// A field holding several files becomes one -F per file, which is exactly the
+// shape the importer folds back into a single row.
+describe('buildCurl with files', () => {
+  it('writes one -F per file in a row', () => {
+    const command = buildCurl({
+      method: 'POST',
+      url: 'https://api.example.com/upload',
+      body: {
+        type: 'multipart',
+        fields: [
+          { key: 'note', value: 'hi', kind: 'text' },
+          {
+            key: 'file',
+            kind: 'file',
+            files: [
+              { name: 'a.xlsx', path: '/tmp/a.xlsx' },
+              { name: 'b.xlsx' },
+            ],
+          },
+        ],
+      },
+    })
+    expect(command).toContain(`-F 'note=hi'`)
+    // A path is what curl needs; a picked file can only contribute its name.
+    expect(command).toContain(`-F 'file=@/tmp/a.xlsx'`)
+    expect(command).toContain(`-F 'file=@b.xlsx'`)
+  })
+
+  it('writes nothing for a file row whose files are gone', () => {
+    const command = buildCurl({
+      method: 'POST',
+      url: 'https://api.example.com/upload',
+      body: { type: 'multipart', fields: [{ key: 'file', kind: 'file', files: [] }] },
+    })
+    expect(command).not.toContain('-F')
+  })
+})

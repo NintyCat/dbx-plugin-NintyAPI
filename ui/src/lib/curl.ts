@@ -1,8 +1,29 @@
-import type { RequestSpec } from './types'
+import { describeFile, isFileRow, rowFiles } from './uploads'
+import type { FormField, RequestSpec } from './types'
 
 function quote(value: string): string {
   // Use single quotes and escape embedded ones, the way shells expect.
   return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/**
+ * A form row's values as curl spells them. A file row becomes one `-F name=@…`
+ * per file — the shape curl uses for several files under one field, and the one
+ * the importer folds back into a single row. The picked bytes are not in the
+ * command, so a filename is the most a copied command can carry.
+ */
+function curlFields(field: FormField): string[] {
+  const files = rowFiles(field)
+  if (files.length > 0) {
+    return files.map(file => {
+      const name = describeFile(file)
+      return `${field.key}=@${file.path || name}`
+    })
+  }
+  // A file row with nothing attached contributes nothing, rather than an empty
+  // field that curl would send as a successful upload of zero bytes.
+  if (isFileRow(field)) return []
+  return [`${field.key}=${field.value ?? ''}`]
 }
 
 const skipHeadersOnCurl = new Set(['host', 'content-length'])
@@ -40,11 +61,11 @@ export function buildCurl(spec: RequestSpec): string {
     if (body.type === 'form' || body.type === 'multipart') {
       for (const f of body.fields || []) {
         if (f.enabled === false || !f.key) continue
-        parts.push(
-          body.type === 'form'
-            ? `-d ${quote(`${f.key}=${f.value}`)}`
-            : `-F ${quote(`${f.key}=${f.value}`)}`
-        )
+        if (body.type === 'form') {
+          parts.push(`-d ${quote(`${f.key}=${f.value ?? ''}`)}`)
+          continue
+        }
+        for (const field of curlFields(f)) parts.push(`-F ${quote(field)}`)
       }
     } else if (body.content) {
       parts.push(`-d ${quote(body.content)}`)

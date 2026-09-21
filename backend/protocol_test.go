@@ -15,6 +15,7 @@ import (
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/connection"
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/rest"
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/store"
+	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/upload"
 	dbx "github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk"
 )
 
@@ -27,10 +28,16 @@ type rpcClient struct{ p *plugin }
 func newTestPlugin(t *testing.T) *rpcClient {
 	t.Helper()
 	dir := t.TempDir()
+	uploads, err := upload.New(filepath.Join(dir, "uploads"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { uploads.Close() })
 	p := &plugin{
 		envs:        connection.New(),
 		collections: store.NewCollections(filepath.Join(dir, "collections.json")),
 		history:     store.NewHistory(filepath.Join(dir, "history.json")),
+		uploads:     uploads,
 	}
 	p.settings.path = filepath.Join(dir, "preferences.json")
 	p.envs.Attach("test", &connection.Env{ID: "test", BaseURL: "http://example.invalid", Timeout: 5 * time.Second})

@@ -1163,6 +1163,218 @@ button.send:disabled {
   font-size: 12px;
 }
 
+/* The form-data table carries an extra type column, so the widths the shared
+   four-column rules set for key/value have to be restated — but only when that
+   column is there. The urlencoded table has no type column and uses the shared
+   widths as they are. */
+.form-editor--files th:nth-child(2) {
+  width: 30%;
+}
+.form-editor--files th:nth-child(3) {
+  width: 84px;
+}
+.form-editor--files th:nth-child(4) {
+  width: auto;
+}
+.form-editor--files th:nth-child(5) {
+  width: 32px;
+}
+.kind-select {
+  width: 100%;
+  height: 28px;
+  font-size: 12px;
+}
+
+/* The picker is opened from a button, so the input itself never shows. */
+.file-input {
+  display: none;
+}
+
+.file-pick {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.file-pick:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+/* Dropping is the route that still works when the sandbox refuses a picker. */
+.file-pick--over,
+.file-cell--over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+}
+
+.file-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 28px;
+  padding: 3px 4px 3px 6px;
+  overflow: hidden;
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* A path is not a picked file: it only resolves on the machine running DBX. */
+.file-cell--path {
+  border-style: dashed;
+}
+
+/* One row may hold several files, so the chips wrap instead of scrolling. */
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.file-chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 2px 1px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+/* A saved file with no bytes left: it looks chosen but has to be picked again. */
+.file-chip--stale {
+  border-color: var(--warn);
+  border-style: dashed;
+}
+.file-chip--path {
+  border-style: dashed;
+}
+.file-chip-name {
+  max-width: 220px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip-x {
+  flex: none;
+  padding: 0 3px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.file-chip-x:hover {
+  color: var(--delete);
+}
+.file-add {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.file-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.file-summary {
+  padding-left: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* A text row's value cell, with room for the note that files it still holds
+   cannot travel in this encoding. */
+.value-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.value-cell .file-note {
+  padding-left: 2px;
+}
+
+/* Says up front what a body cannot send, rather than failing at send time. */
+.body-warning {
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--sunken);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-size,
+.file-note {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.file-note {
+  font-style: italic;
+}
+/* No picked file and no path: the row looks ready but cannot be sent. */
+.file-note--warn {
+  color: var(--warn);
+  font-style: normal;
+}
+.file-clear {
+  flex: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.file-clear:hover {
+  color: var(--delete);
+}
+
+.binary-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+.binary-body .file-pick {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  align-self: flex-start;
+  width: auto;
+}
+.binary-body .field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.binary-body .field > span {
+  flex: none;
+  min-width: 64px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .body-types {
   display: flex;
   align-items: center;

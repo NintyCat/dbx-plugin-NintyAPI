@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DictKey, T } from '../lib/i18n'
-import { highlightJson } from '../lib/json'
+import { formatBytes, highlightJson } from '../lib/json'
 import { highlightMarkup, tryFormatMarkup } from '../lib/markup'
 import { splitUrlQuery } from '../lib/tree'
-import type { KV, RequestSpec } from '../lib/types'
+import { describeFile, fileFor, fileSizeOf, forgetFile, rememberFile } from '../lib/uploads'
+import type { BodySpec, KV, RequestSpec } from '../lib/types'
 import { METHODS } from '../lib/types'
 import { Icon } from './Icon'
 import { Select } from './Select'
 import { KVEditor } from './KVEditor'
+import { FormDataEditor } from './FormDataEditor'
 
 export type EditorTab = 'params' | 'headers' | 'body' | 'auth' | 'settings'
 
@@ -25,6 +27,8 @@ type Props = {
   /** Name of the environment requests resolve against; empty when none. */
   activeEnvName?: string
   sending: boolean
+  /** Percent of the request's files uploaded, while they are still going. */
+  uploadPercent?: number
   dirty: boolean
   /** False when a direct save is impossible, e.g. a new request with no URL. */
   canSave?: boolean
@@ -44,8 +48,24 @@ const BODY_LABELS: Record<(typeof BODY_TYPES)[number], DictKey> = {
   binary: 'binary',
 }
 
+/**
+ * The Content-Type each body type sends when the editor leaves it alone, shown
+ * on the chip. The labels are protocol names, so the media type behind each one
+ * is the only thing that makes them unambiguous — and the two form encodings
+ * differ in nothing else. A typed Content-Type header still wins, except for
+ * multipart, whose boundary only the sender knows.
+ */
+const BODY_CONTENT_TYPES: Partial<Record<(typeof BODY_TYPES)[number], string>> = {
+  json: 'application/json',
+  xml: 'application/xml',
+  raw: 'text/plain',
+  form: 'application/x-www-form-urlencoded',
+  multipart: 'multipart/form-data',
+  binary: 'application/octet-stream',
+}
+
 export function RequestPanel(props: Props) {
-  const { t, spec, sending, dirty, canSave = true, revealBody } = props
+  const { t, spec, sending, dirty, canSave = true, revealBody, uploadPercent } = props
   const [tab, setTab] = useState<EditorTab>(revealBody ? 'body' : 'params')
   // A later import into this same request bumps revealBody; the tab follows so
   // the imported payload shows up in the editor that matches its type.
@@ -125,7 +145,11 @@ export function RequestPanel(props: Props) {
         />
         <button className="send" disabled={sending} onClick={props.onSend}>
           <Icon name="send" size={14} />
-          {sending ? t('sending') : t('send')}
+          {uploadPercent !== undefined
+            ? t('uploading', { percent: uploadPercent })
+            : sending
+              ? t('sending')
+              : t('send')}
         </button>
         <button
           className={`ghost req-tool ${dirty ? 'dirty' : ''}`}
@@ -196,6 +220,7 @@ export function RequestPanel(props: Props) {
                 <button
                   key={type}
                   className={body.type === type ? 'chip active' : 'chip'}
+                  title={BODY_CONTENT_TYPES[type]}
                   onClick={() => props.onChange({ ...spec, body: { ...body, type } })}
                 >
                   {t(BODY_LABELS[type])}
@@ -208,23 +233,30 @@ export function RequestPanel(props: Props) {
                 </button>
               )}
             </div>
-            {(body.type === 'form' || body.type === 'multipart') && (
-              <KVEditor
+            {body.type === 'form' && (
+              /* The same table as form-data, with files switched off: rows keep
+                 whatever files they hold, so moving between the two encodings
+                 never flattens a file row into an empty text one. */
+              <FormDataEditor
                 t={t}
-                rows={rows(body.fields)}
-                fileHint={body.type === 'multipart'}
-                onChange={r => props.onChange({ ...spec, body: { ...body, fields: r } })}
+                rows={body.fields || []}
+                allowFiles={false}
+                onChange={fields => props.onChange({ ...spec, body: { ...body, fields } })}
+              />
+            )}
+            {body.type === 'multipart' && (
+              <FormDataEditor
+                t={t}
+                rows={body.fields || []}
+                onChange={fields => props.onChange({ ...spec, body: { ...body, fields } })}
               />
             )}
             {body.type === 'none' && (
               <div className="body-placeholder">{props.t('noBody')}</div>
             )}
-            {(body.type === 'json' ||
-              body.type === 'xml' ||
-              body.type === 'raw' ||
-              body.type === 'binary') && (
-              /* Every body type shares the JSON editor so they all look and
-                 behave the same; only the highlighter and hint differ. */
+            {(body.type === 'json' || body.type === 'xml' || body.type === 'raw') && (
+              /* Every text body type shares the JSON editor so they all look and
+                 behave the same; only the highlighter differs. */
               <HighlightedCode
                 value={body.content || ''}
                 highlight={
@@ -234,10 +266,16 @@ export function RequestPanel(props: Props) {
                       ? highlightMarkup
                       : undefined
                 }
-                placeholder={body.type === 'binary' ? '/absolute/path/to/file' : undefined}
                 onChange={content =>
                   props.onChange({ ...spec, body: { ...body, content } })
                 }
+              />
+            )}
+            {body.type === 'binary' && (
+              <BinaryBody
+                t={t}
+                body={body}
+                onChange={next => props.onChange({ ...spec, body: next })}
               />
             )}
           </div>
@@ -346,6 +384,137 @@ export function RequestPanel(props: Props) {
 function count(list?: KV[]): string {
   const n = (list || []).filter(r => r.enabled !== false && r.key).length
   return n ? `· ${n}` : ''
+}
+
+/**
+ * The binary body: a picked file when there is one, otherwise a path typed by
+ * hand. Picking wins when both are present, because those bytes are known to be
+ * reachable while a path only means something on the machine running DBX.
+ */
+function BinaryBody({
+  t,
+  body,
+  onChange,
+}: {
+  t: T
+  body: BodySpec
+  onChange: (body: BodySpec) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
+  const ref = body.file
+  const picked = fileFor(ref?.token)
+  const label = describeFile(ref)
+  const size = fileSizeOf(ref)
+  // Requests saved before file picking put the path in Content; showing it here
+  // keeps those bodies editable, and the first keystroke migrates it.
+  const path = ref?.path ?? body.content ?? ''
+
+  const choose = (file?: File) => {
+    if (!file) return
+    forgetFile(ref?.token)
+    onChange({
+      ...body,
+      file: {
+        token: rememberFile(file),
+        name: file.name,
+        contentType: file.type || undefined,
+        size: file.size,
+      },
+    })
+  }
+
+  // A drop needs no permission, so it is the route that still works if the
+  // host's sandbox refuses to open a native picker.
+  const dropProps = {
+    onDragOver: (event: React.DragEvent) => {
+      if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return
+      event.preventDefault()
+      setOver(true)
+    },
+    onDragLeave: () => setOver(false),
+    onDrop: (event: React.DragEvent) => {
+      const file = event.dataTransfer?.files?.[0]
+      setOver(false)
+      if (!file) return
+      event.preventDefault()
+      choose(file)
+    },
+  }
+
+  return (
+    <div className="binary-body">
+      <input
+        ref={inputRef}
+        type="file"
+        className="file-input"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={e => {
+          choose(e.target.files?.[0])
+          e.target.value = ''
+        }}
+      />
+      {label ? (
+        <div
+          className={`file-cell${picked ? '' : ' file-cell--path'}${over ? ' file-cell--over' : ''}`}
+          {...dropProps}
+        >
+          <button
+            className="ghost file-name"
+            title={picked ? t('chooseFileHint') : label}
+            onClick={() => inputRef.current?.click()}
+          >
+            {label}
+          </button>
+          {size !== undefined && <span className="file-size">{formatBytes(size)}</span>}
+          {!picked && (
+            <span className={`file-note${path ? '' : ' file-note--warn'}`}>
+              {path ? t('fileFromPath') : t('fileNeedsPick')}
+            </span>
+          )}
+          <button
+            className="ghost file-clear"
+            title={t('clearFile')}
+            aria-label={t('clearFile')}
+            onClick={() => {
+              forgetFile(ref?.token)
+              onChange({ ...body, file: undefined })
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <button
+          className={`ghost file-pick${over ? ' file-pick--over' : ''}`}
+          title={t('chooseFileHint')}
+          onClick={() => inputRef.current?.click()}
+          {...dropProps}
+        >
+          <Icon name="folder" size={13} /> {t('chooseFile')}
+        </button>
+      )}
+      {/* A path is the only route for a file the browser cannot read, so the
+          editor keeps offering it even after a file has been picked. */}
+      <label className="field">
+        <span>{t('binaryPath')}</span>
+        <input
+          className="dbx-input"
+          placeholder="/absolute/path/to/file"
+          value={path}
+          onChange={e =>
+            onChange({
+              ...body,
+              content: undefined,
+              file: { ...ref, path: e.target.value || undefined },
+            })
+          }
+        />
+      </label>
+      <div className="dbx-hint">{t('binaryHint')}</div>
+    </div>
+  )
 }
 
 function mergeParams(current: KV[], parsed: KV[]): KV[] {

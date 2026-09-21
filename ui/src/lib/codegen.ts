@@ -1,4 +1,5 @@
 import { buildCurl } from './curl'
+import { describeFile, isFileRow, rowFiles } from './uploads'
 import type { RequestSpec } from './types'
 
 export type CodeLanguage = 'curl' | 'javascript' | 'python' | 'go'
@@ -52,9 +53,24 @@ function effective(spec: RequestSpec): {
   if (body && body.type !== 'none') {
     if (body.type === 'form' || body.type === 'multipart') {
       bodyIsForm = true
-      const params = (body.fields || [])
-        .filter(f => f.enabled !== false && f.key)
-        .map(f => `${encodeURIComponent(f.key)}=${encodeURIComponent(f.value)}`)
+      const params: string[] = []
+      for (const f of body.fields || []) {
+        if (f.enabled === false || !f.key) continue
+        const files = rowFiles(f)
+        if (files.length === 0) {
+          // A file row with nothing attached contributes nothing, rather than
+          // an empty field standing in for a file that was never chosen.
+          if (!isFileRow(f)) {
+            params.push(`${encodeURIComponent(f.key)}=${encodeURIComponent(f.value ?? '')}`)
+          }
+          continue
+        }
+        // A file row has no text value to encode; the filename stands in, the
+        // way the copied cURL spells it.
+        for (const file of files) {
+          params.push(`${encodeURIComponent(f.key)}=${encodeURIComponent(describeFile(file))}`)
+        }
+      }
       bodyContent = params.join('&')
       if (body.type === 'form')
         headers.push({ key: 'Content-Type', value: 'application/x-www-form-urlencoded' })

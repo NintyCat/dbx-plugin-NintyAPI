@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path"
@@ -31,6 +32,10 @@ type BaseEnv struct {
 	// Cookies holds the connection's session cookies. Requests are otherwise
 	// independent, so this is the only thing that survives from one to the next.
 	Cookies http.CookieJar
+	// Files resolves the bytes behind a picked file. Nil leaves only
+	// FileRef.Path usable, which is what a caller that never streams uploads
+	// wants.
+	Files FileResolver
 }
 
 func (e BaseEnv) proxyFunc() func(*http.Request) (*url.URL, error) {
@@ -68,7 +73,7 @@ func Send(ctx context.Context, env BaseEnv, spec RequestSpec) (*Response, error)
 	if err != nil {
 		return nil, err
 	}
-	body, contentType, contentLength, err := openBody(spec.Body)
+	body, contentType, contentLength, err := openBody(spec.Body, env.Files)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +87,12 @@ func Send(ctx context.Context, env BaseEnv, spec RequestSpec) (*Response, error)
 			req.Header.Set(h.Key, h.Value)
 		}
 	}
-	if contentType != "" && req.Header.Get("Content-Type") == "" {
+	// A multipart body's Content-Type carries the boundary the writer chose for
+	// this request, and the writer is the only thing that knows it. A header
+	// typed by hand — or copied from a browser alongside the body — would name a
+	// delimiter that appears nowhere in the bytes, so it is replaced rather than
+	// deferred to.
+	if contentType != "" && (spec.Body != nil && spec.Body.Type == "multipart" || req.Header.Get("Content-Type") == "") {
 		req.Header.Set("Content-Type", contentType)
 	}
 	if contentLength >= 0 {
@@ -334,7 +344,7 @@ var defaultContentTypes = map[string]string{
 }
 
 // openBody materializes the request body. contentLength is -1 when unknown.
-func openBody(body *BodySpec) (io.Reader, string, int64, error) {
+func openBody(body *BodySpec, files FileResolver) (io.Reader, string, int64, error) {
 	if body == nil || body.Type == "" || body.Type == "none" {
 		return nil, "", -1, nil
 	}
@@ -348,9 +358,17 @@ func openBody(body *BodySpec) (io.Reader, string, int64, error) {
 	case "form":
 		form := url.Values{}
 		for _, f := range body.Fields {
-			if f.on() && f.Key != "" {
-				form.Set(f.Key, f.Value)
+			if !f.on() || f.Key == "" {
+				continue
 			}
+			// urlencoded has nowhere to put a file. Sending the row as an empty
+			// value would look to the server like a successful upload of
+			// nothing, so the mismatch is named instead.
+			if len(f.fileRefs()) > 0 {
+				return nil, "", -1, fmt.Errorf(
+					"表单字段 %q 带有文件，而 x-www-form-urlencoded 只能发送文本：请改用 form-data，或移除该字段的文件", f.Key)
+			}
+			form.Set(f.Key, f.Value)
 		}
 		encoded := form.Encode()
 		return strings.NewReader(encoded), contentType, int64(len(encoded)), nil
@@ -361,22 +379,22 @@ func openBody(body *BodySpec) (io.Reader, string, int64, error) {
 			if !f.on() || f.Key == "" {
 				continue
 			}
-			if strings.HasPrefix(f.Value, "@") {
-				name := strings.TrimPrefix(f.Value, "@")
-				file, err := os.Open(name)
-				if err != nil {
-					return nil, "", -1, fmt.Errorf("无法打开表单文件 %q：%w", name, err)
+			refs := f.fileRefs()
+			if len(refs) == 0 {
+				if f.wantsFile() {
+					return nil, "", -1, fmt.Errorf("表单字段 %q 的文件不能为空，请重新选择文件", f.Key)
 				}
-				part, err := writer.CreateFormFile(f.Key, path.Base(file.Name()))
-				if err == nil {
-					_, err = io.Copy(part, file)
-				}
-				file.Close()
-				if err != nil {
+				if err := writer.WriteField(f.Key, f.Value); err != nil {
 					return nil, "", -1, err
 				}
-			} else if err := writer.WriteField(f.Key, f.Value); err != nil {
-				return nil, "", -1, err
+				continue
+			}
+			// A row holding several files becomes several parts sharing the
+			// field name, in the order they were chosen.
+			for _, ref := range refs {
+				if err := writeFilePart(writer, f.Key, ref, files); err != nil {
+					return nil, "", -1, err
+				}
 			}
 		}
 		if err := writer.Close(); err != nil {
@@ -384,17 +402,111 @@ func openBody(body *BodySpec) (io.Reader, string, int64, error) {
 		}
 		return bytes.NewReader(buf.Bytes()), writer.FormDataContentType(), int64(buf.Len()), nil
 	case "binary":
-		name := body.Content
-		data, err := os.ReadFile(name)
-		if err != nil {
-			return nil, "", -1, fmt.Errorf("无法读取二进制请求体 %q：%w", name, err)
+		// Content is where a path lived before the workbench could pick files,
+		// so an unset File falls back to it.
+		ref := body.File
+		if ref == nil || (ref.ID == "" && ref.Path == "") {
+			ref = &FileRef{Path: body.Content}
 		}
-		if len(data) > maxBodyBytes {
-			return nil, "", -1, errors.New("二进制请求体超过 10 MiB")
+		reader, _, err := openFileRef(*ref, files)
+		if err != nil {
+			return nil, "", -1, fileRefError(*ref, "无法读取二进制请求体", err)
+		}
+		defer reader.Close()
+		data, err := io.ReadAll(io.LimitReader(reader, maxRequestBytes+1))
+		if err != nil {
+			return nil, "", -1, err
+		}
+		if len(data) > maxRequestBytes {
+			return nil, "", -1, fmt.Errorf("二进制请求体超过 %d MiB", maxRequestBytes>>20)
 		}
 		return bytes.NewReader(data), contentType, int64(len(data)), nil
 	}
 	return nil, "", -1, fmt.Errorf("不支持的请求体类型 %q", body.Type)
+}
+
+// writeFilePart streams one file into a multipart body. The part carries the
+// file's own content type when the workbench knows it, so a server that keys
+// off the part header sees a real image or PDF instead of octet-stream.
+func writeFilePart(writer *multipart.Writer, field string, ref FileRef, files FileResolver) error {
+	reader, name, err := openFileRef(ref, files)
+	if err != nil {
+		return fileRefError(ref, "无法打开表单文件", err)
+	}
+	defer reader.Close()
+	partType := ref.ContentType
+	if partType == "" {
+		partType = "application/octet-stream"
+	}
+	// Built by hand rather than with CreateFormFile, which hardcodes
+	// octet-stream, and rather than mime.FormatMediaType, which would move a
+	// non-ASCII filename into an RFC 2231 filename*= that most servers ignore.
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", fmt.Sprintf(
+		`form-data; name="%s"; filename="%s"`, escapePartName(field), escapePartName(name)))
+	header.Set("Content-Type", partType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, reader)
+	return err
+}
+
+// openFileRef returns the bytes a FileRef names plus the filename to report to
+// the server. Uploaded bytes win over a path: the workbench only leaves Path
+// set for a cURL import or a hand-typed "@path", which the user may never have
+// re-picked.
+func openFileRef(ref FileRef, files FileResolver) (io.ReadCloser, string, error) {
+	if ref.ID != "" {
+		if files == nil {
+			return nil, "", errors.New("上传的文件已失效，请重新选择文件")
+		}
+		reader, err := files.Open(ref)
+		if err != nil {
+			return nil, "", err
+		}
+		return reader, fileNameFor(ref), nil
+	}
+	file, err := os.Open(ref.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	return file, fileNameFor(ref), nil
+}
+
+func fileNameFor(ref FileRef) string {
+	if ref.Name != "" {
+		return ref.Name
+	}
+	if ref.Path != "" {
+		return path.Base(ref.Path)
+	}
+	return "file"
+}
+
+// fileRefError names what the user can act on: the path they wrote down, or —
+// for a picked file, whose bytes the store already described — the store's own
+// message, which is the only place that knows the upload went stale.
+func fileRefError(ref FileRef, action string, err error) error {
+	if ref.ID != "" {
+		return err
+	}
+	return fmt.Errorf("%s %q：%w", action, ref.Path, err)
+}
+
+// escapePartName quotes a part's field name or filename the way mime/multipart
+// does — backslash and quote escaped — and drops CR and LF so a crafted
+// filename cannot inject extra part headers.
+func escapePartName(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, value)
 }
 
 func errorText(err error) string {

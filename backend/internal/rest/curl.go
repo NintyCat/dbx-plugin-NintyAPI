@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,7 +25,7 @@ func ParseCurl(command string) (RequestSpec, error) {
 	}
 	spec := RequestSpec{Method: http.MethodGet}
 	var dataParts []string
-	var formFields []KV
+	var formFields []FormField
 	var user, agent, referer, cookie string
 	var insecure, follow, head, get bool
 	var maxSeconds int
@@ -76,7 +78,7 @@ func ParseCurl(command string) (RequestSpec, error) {
 					return RequestSpec{}, fmt.Errorf("无效的表单字段 %q", value)
 				}
 			}
-			formFields = append(formFields, KV{Key: name, Value: fieldValue})
+			formFields = append(formFields, formFieldFromCurl(name, fieldValue))
 		case "-u", "--user":
 			if user, err = next(i, tok); err != nil {
 				return RequestSpec{}, err
@@ -155,7 +157,7 @@ func ParseCurl(command string) (RequestSpec, error) {
 		if anyFileField(formFields) {
 			kind = "multipart"
 		}
-		spec.Body = &BodySpec{Type: kind, Fields: formFields}
+		spec.Body = &BodySpec{Type: kind, Fields: foldFileRows(formFields)}
 		if spec.Method == http.MethodGet {
 			spec.Method = http.MethodPost
 		}
@@ -169,6 +171,11 @@ func ParseCurl(command string) (RequestSpec, error) {
 			spec.URL += separator + data
 		} else {
 			spec.Body = bodyForData(headerValue(spec.Headers, "Content-Type"), data)
+			if spec.Body != nil && spec.Body.Type == "multipart" {
+				// The sender writes its own boundary when it assembles the body,
+				// so the copied one would name a delimiter that never appears.
+				spec.Headers = dropHeader(spec.Headers, "Content-Type")
+			}
 			if spec.Method == http.MethodGet {
 				spec.Method = http.MethodPost
 			}
@@ -205,6 +212,10 @@ func bodyForData(contentType, data string) *BodySpec {
 		if fields, ok := urlencodedFields(data); ok {
 			return &BodySpec{Type: "form", Fields: fields}
 		}
+	case strings.HasPrefix(mediaType, "multipart/"):
+		if fields, ok := multipartFields(contentType, data); ok {
+			return &BodySpec{Type: "multipart", Fields: fields}
+		}
 	case mediaType != "":
 		// A declared type none of our editors model: keep the payload intact.
 		return &BodySpec{Type: "raw", Content: data}
@@ -215,12 +226,112 @@ func bodyForData(contentType, data string) *BodySpec {
 		return &BodySpec{Type: "json", Content: data}
 	case strings.HasPrefix(content, "<"):
 		return &BodySpec{Type: "xml", Content: data}
+	case looksMultipart(content):
+		if fields, ok := multipartFields("", data); ok {
+			return &BodySpec{Type: "multipart", Fields: fields}
+		}
 	case looksForm(content):
 		if fields, ok := urlencodedFields(data); ok {
 			return &BodySpec{Type: "form", Fields: fields}
 		}
 	}
 	return &BodySpec{Type: "raw", Content: data}
+}
+
+// multipartFields reads a multipart payload that arrived as a pasted body rather
+// than as -F flags, which is the shape a browser's "copy as cURL" produces.
+//
+// The file bytes were never in the clipboard — DevTools writes the part headers
+// and leaves the content empty — so a file part becomes a file row that carries
+// the filename and still has to be filled in. That is the honest reading: the
+// alternative is sending a zero-byte file and calling it success.
+func multipartFields(contentType, data string) ([]FormField, bool) {
+	boundary := boundaryOf(contentType)
+	if boundary == "" {
+		// No header to read it from, so take it from the opening delimiter.
+		if _, rest, found := strings.Cut(data, "--"); found {
+			if end := strings.IndexAny(rest, "\r\n"); end > 0 {
+				boundary = rest[:end]
+			}
+		}
+	}
+	if boundary == "" {
+		return nil, false
+	}
+	reader := multipart.NewReader(strings.NewReader(data), boundary)
+	var fields []FormField
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			// A body that does not parse is not a multipart body; leave it raw
+			// rather than half-converting it.
+			return nil, false
+		}
+		body, err := io.ReadAll(part)
+		if err != nil {
+			return nil, false
+		}
+		name := part.FormName()
+		if name == "" {
+			return nil, false
+		}
+		if filename := part.FileName(); filename != "" {
+			fields = append(fields, FormField{
+				Key:  name,
+				Kind: "file",
+				Files: []FileRef{{
+					Name:        filename,
+					ContentType: part.Header.Get("Content-Type"),
+				}},
+			})
+			continue
+		}
+		fields = append(fields, FormField{Key: name, Value: string(body), Kind: "text"})
+	}
+	if len(fields) == 0 {
+		return nil, false
+	}
+	return foldFileRows(fields), true
+}
+
+// foldFileRows merges file parts that share a field name into one row. That is
+// how the editor models a field carrying several files, and it is what both a
+// multiple file input and repeated `-F name=@file` flags mean.
+func foldFileRows(fields []FormField) []FormField {
+	out := make([]FormField, 0, len(fields))
+	for _, field := range fields {
+		last := len(out) - 1
+		if last >= 0 && field.Kind == "file" && out[last].Kind == "file" && out[last].Key == field.Key {
+			out[last].Files = append(out[last].Files, field.Files...)
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+// boundaryOf pulls the boundary out of a multipart Content-Type. It is read by
+// hand rather than with mime.ParseMediaType because a boundary that came from
+// the clipboard is often unquoted and carries characters ParseMediaType
+// rejects.
+func boundaryOf(contentType string) string {
+	for _, param := range strings.Split(contentType, ";")[1:] {
+		key, value, found := strings.Cut(strings.TrimSpace(param), "=")
+		if !found || !strings.EqualFold(key, "boundary") {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(value), `"`)
+	}
+	return ""
+}
+
+// looksMultipart spots a pasted body by its opening delimiter, which is all
+// there is to go on when the Content-Type header was dropped along the way.
+func looksMultipart(content string) bool {
+	return strings.HasPrefix(content, "--") && strings.Contains(content, "Content-Disposition:")
 }
 
 // referencedFile reports the path of a `--data-binary @file` payload, which the
@@ -260,8 +371,8 @@ func looksForm(content string) bool {
 
 // urlencodedFields turns `k=v&k=v` into rows, undoing the percent-encoding so
 // sending them re-encodes to exactly the payload that was pasted.
-func urlencodedFields(data string) ([]KV, bool) {
-	var fields []KV
+func urlencodedFields(data string) ([]FormField, bool) {
+	var fields []FormField
 	for _, pair := range strings.Split(data, "&") {
 		if pair == "" {
 			continue
@@ -278,7 +389,7 @@ func urlencodedFields(data string) ([]KV, bool) {
 		if err != nil {
 			return nil, false
 		}
-		fields = append(fields, KV{Key: decodedKey, Value: decodedValue})
+		fields = append(fields, FormField{Key: decodedKey, Value: decodedValue, Kind: "text"})
 	}
 	return fields, len(fields) > 0
 }
@@ -292,9 +403,33 @@ func headerValue(headers []KV, name string) string {
 	return ""
 }
 
-func anyFileField(fields []KV) bool {
+// dropHeader removes every row naming a header, for the headers the sender
+// generates itself.
+func dropHeader(headers []KV, name string) []KV {
+	kept := make([]KV, 0, len(headers))
+	for _, header := range headers {
+		if strings.EqualFold(header.Key, name) {
+			continue
+		}
+		kept = append(kept, header)
+	}
+	return kept
+}
+
+// formFieldFromCurl reads one -F field. A "@" value is a file, which the
+// editor shows as a file row carrying the path; the multipart type follows from
+// there. The display name is left unset so the sender can take it from the
+// path itself.
+func formFieldFromCurl(name, value string) FormField {
+	if file, found := strings.CutPrefix(strings.TrimSpace(value), "@"); found && file != "" {
+		return FormField{Key: name, Kind: "file", Files: []FileRef{{Path: file}}}
+	}
+	return FormField{Key: name, Value: value, Kind: "text"}
+}
+
+func anyFileField(fields []FormField) bool {
 	for _, f := range fields {
-		if strings.HasPrefix(f.Value, "@") {
+		if len(f.fileRefs()) > 0 {
 			return true
 		}
 	}
@@ -304,7 +439,7 @@ func anyFileField(fields []KV) bool {
 func boolPtr(v bool) *bool { return &v }
 
 // tokenize splits a command line into words, honouring single quotes, double
-// quotes and backslash escapes.
+// quotes, ANSI-C quoting and backslash escapes.
 func tokenize(line string) ([]string, error) {
 	var tokens []string
 	var current strings.Builder
@@ -312,6 +447,21 @@ func tokenize(line string) ([]string, error) {
 	for i := 0; i < len(line); i++ {
 		c := line[i]
 		switch {
+		case c == '$' && i+1 < len(line) && line[i+1] == '\'':
+			// ANSI-C quoting, which is how a shell-ready paste spells a payload
+			// with real newlines in it — a multipart body copied out of the
+			// browser arrives exactly this way.
+			started = true
+			end := strings.IndexByte(line[i+2:], '\'')
+			if end < 0 {
+				return nil, errors.New("ANSI-C 引号未闭合")
+			}
+			decoded, err := unescapeAnsiC(line[i+2 : i+2+end])
+			if err != nil {
+				return nil, err
+			}
+			current.WriteString(decoded)
+			i += end + 2
 		case c == '\'':
 			started = true
 			end := strings.IndexByte(line[i+1:], '\'')
@@ -333,6 +483,16 @@ func tokenize(line string) ([]string, error) {
 			if i >= len(line) {
 				return nil, errors.New("双引号未闭合")
 			}
+		case c == '\\' && i+1 < len(line) && (line[i+1] == '\n' || line[i+1] == '\r'):
+			// A shell line continuation: the lines are one command, and the
+			// backslash-newline pair belongs to no argument. Treating it as an
+			// escaped newline would leak a stray "\n" token that swallows the
+			// flag after it — which is exactly how a multi-line paste loses
+			// headers.
+			i++
+			if line[i] == '\r' && i+1 < len(line) && line[i+1] == '\n' {
+				i++
+			}
 		case c == '\\' && i+1 < len(line):
 			started = true
 			i++
@@ -352,4 +512,52 @@ func tokenize(line string) ([]string, error) {
 		tokens = append(tokens, current.String())
 	}
 	return tokens, nil
+}
+
+// unescapeAnsiC expands the backslash escapes a $'...' literal may carry. The
+// ones a pasted HTTP body actually uses are the whitespace escapes; the rest are
+// here so a decoded payload is never silently wrong.
+func unescapeAnsiC(text string) (string, error) {
+	var out strings.Builder
+	for i := 0; i < len(text); i++ {
+		if text[i] != '\\' || i+1 >= len(text) {
+			out.WriteByte(text[i])
+			continue
+		}
+		i++
+		switch text[i] {
+		case 'n':
+			out.WriteByte('\n')
+		case 'r':
+			out.WriteByte('\r')
+		case 't':
+			out.WriteByte('\t')
+		case 'a':
+			out.WriteByte('\a')
+		case 'b':
+			out.WriteByte('\b')
+		case 'f':
+			out.WriteByte('\f')
+		case 'v':
+			out.WriteByte('\v')
+		case '\\', '\'', '"', '?':
+			out.WriteByte(text[i])
+		case 'x':
+			if i+2 >= len(text) {
+				return "", errors.New("\\x 转义不完整")
+			}
+			value, err := strconv.ParseUint(text[i+1:i+3], 16, 8)
+			if err != nil {
+				return "", fmt.Errorf("无效的 \\x 转义 %q", text[i+1:i+3])
+			}
+			out.WriteByte(byte(value))
+			i += 2
+		default:
+			// An escape with no meaning keeps its backslash, which is what a
+			// shell does too.
+			out.WriteByte('\\')
+			out.WriteByte(text[i])
+		}
+	}
+	return out.String(), nil
 }

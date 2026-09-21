@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/connection"
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/rest"
 	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/store"
+	"github.com/NintyCat/dbx-plugin-NintyAPI/internal/upload"
 	dbx "github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk"
 )
 
@@ -64,6 +66,7 @@ type plugin struct {
 	envs        *connection.Manager
 	collections *store.Collections
 	history     *store.History
+	uploads     *upload.Store
 	settings    settings
 }
 
@@ -89,6 +92,32 @@ var rpcRoutes = map[string]rpcHandler{
 	}},
 	"clipboard/write-text": {run: func(_ *plugin, _ string, params map[string]any, _ json.RawMessage) (any, *dbx.PluginError) {
 		return writeClipboard(params)
+	}},
+	// Uploads arrive in chunks because the host bridge caps one JSON parameter
+	// at 2 MiB, well under any file worth sending. The workbench picks a file,
+	// streams it here, and then names the upload in the request that consumes
+	// it — see internal/upload for why the bytes cannot simply be a path.
+	"upload/begin": {run: func(p *plugin, _ string, params map[string]any, _ json.RawMessage) (any, *dbx.PluginError) {
+		item, err := p.uploads.Begin(asString(params["name"]), asString(params["contentType"]), asInt64(params["size"]))
+		if err != nil {
+			return nil, toPluginError(err)
+		}
+		return map[string]any{"uploadId": item.ID, "chunkBytes": upload.MaxChunkBytes}, nil
+	}},
+	"upload/chunk": {run: func(p *plugin, _ string, params map[string]any, _ json.RawMessage) (any, *dbx.PluginError) {
+		data, err := base64.StdEncoding.DecodeString(asString(params["data"]))
+		if err != nil {
+			return nil, dbx.NewError(-32602, "上传分片不是合法的 base64")
+		}
+		received, err := p.uploads.Append(asString(params["uploadId"]), asInt64(params["offset"]), data)
+		if err != nil {
+			return nil, toPluginError(err)
+		}
+		return map[string]any{"received": received}, nil
+	}},
+	"upload/abort": {run: func(p *plugin, _ string, params map[string]any, _ json.RawMessage) (any, *dbx.PluginError) {
+		p.uploads.Drop(asString(params["uploadId"]))
+		return map[string]any{"ok": true}, nil
 	}},
 	"ui/preferences-get": {run: func(p *plugin, _ string, params map[string]any, raw json.RawMessage) (any, *dbx.PluginError) {
 		return p.servePreferences("ui/preferences-get", params, raw)
@@ -272,6 +301,14 @@ func checkConnectionIDFields(params map[string]any) *dbx.PluginError {
 
 func asString(v any) string { s, _ := v.(string); return s }
 
+// asInt64 reads a JSON number. Every integer on the wire arrives as a float64,
+// and an absent or non-numeric value reads as 0, which the callers treat as
+// "not specified".
+func asInt64(v any) int64 {
+	n, _ := v.(float64)
+	return int64(n)
+}
+
 // doRequest runs one HTTP call and files the whole exchange — the parameters
 // that went out, the response that came back, when it happened — into the
 // connection's history.
@@ -290,7 +327,9 @@ func (p *plugin) doRequest(connID string, raw json.RawMessage) (any, *dbx.Plugin
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+5*time.Second)
 	defer cancel()
-	resp, err := rest.Send(ctx, toBaseEnv(env), spec)
+	base := toBaseEnv(env)
+	base.Files = p.uploads
+	resp, err := rest.Send(ctx, base, spec)
 	if err != nil {
 		return nil, toPluginError(err)
 	}
@@ -391,10 +430,16 @@ var validationMarkers = []string{
 }
 
 func main() {
+	uploads, err := upload.New("")
+	if err != nil {
+		panic(err)
+	}
+	defer uploads.Close()
 	p := &plugin{
 		envs:        connection.New(),
 		collections: &store.Collections{},
 		history:     &store.History{},
+		uploads:     uploads,
 	}
 	server := dbx.NewServer(resolveMetadata(), p)
 	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {

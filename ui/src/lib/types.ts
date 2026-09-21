@@ -7,7 +7,49 @@ export type KV = {
 export type BodySpec = {
   type: 'none' | 'json' | 'xml' | 'raw' | 'form' | 'multipart' | 'binary'
   content?: string
-  fields?: KV[]
+  fields?: FormField[]
+  /** A binary body's payload, when the user picked a file rather than a path. */
+  file?: FileRef
+}
+
+/**
+ * The file a form row or a binary body sends.
+ *
+ * The workbench runs in a sandboxed iframe, so a picked file is a browser File
+ * with no path the sidecar could open. Picked bytes are streamed to the sidecar
+ * when the request is sent, and `id` names that upload. `path` is the other
+ * route — a file on the machine running DBX, which is all a cURL import can
+ * offer, since a URL only ever spells a path.
+ */
+export type FileRef = {
+  /** Upload the sidecar minted for this send; set only on the way out. */
+  id?: string
+  /** Path on the machine running DBX, from a cURL import or a typed "@path". */
+  path?: string
+  name?: string
+  contentType?: string
+  size?: number
+  /**
+   * Key into the in-memory registry of picked files. UI-only: dropped before
+   * the request is sent and before anything is saved, because a token only
+   * means something to the tab that picked the file.
+   */
+  token?: string
+}
+
+export type FormField = {
+  key: string
+  value?: string
+  enabled?: boolean
+  /** Absent on rows saved before file picking existed; those read "@" as a path. */
+  kind?: 'text' | 'file'
+  /**
+   * The files this row sends: one part each, all under the row's key, which is
+   * what a browser sends for a multiple file input.
+   */
+  files?: FileRef[]
+  /** The single-file shape written before a row could carry several. */
+  file?: FileRef
 }
 
 export type AuthSpec = {

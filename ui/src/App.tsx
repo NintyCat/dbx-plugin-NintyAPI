@@ -33,6 +33,7 @@ import {
 } from './lib/environments'
 import { langOf, makeT } from './lib/i18n'
 import { buildTree, effectiveUrl, QUICK_ROOT_ID, type TreeNode } from './lib/tree'
+import { resolveRequestFiles, stripFileTokens } from './lib/uploads'
 import type {
   CollectionNode,
   HistoryRecord,
@@ -54,6 +55,8 @@ type Tab = {
   /** Bumped by a cURL import that brought a body: show the body editor. */
   revealBody?: number
   sending: boolean
+  /** Percent of the request's files uploaded, while they are still going. */
+  uploadPercent?: number
   dirty: boolean
   /** Pinned tabs lead the strip and cannot be closed. */
   pinned?: boolean
@@ -483,11 +486,19 @@ export default function App() {
   }
 
   const send = async (tab: Tab) => {
-    patchTab(tab.key, { sending: true })
+    patchTab(tab.key, { sending: true, uploadPercent: undefined })
     try {
+      // Picked files are not part of the spec: they live in memory until the
+      // request is sent, and only then are their bytes streamed to the sidecar.
+      const spec = await resolveRequestFiles(tab.spec, invoke, t, ({ sent, total }) =>
+        patchTab(tab.key, {
+          uploadPercent: total ? Math.round((sent / total) * 100) : undefined,
+        })
+      )
+      patchTab(tab.key, { uploadPercent: undefined })
       const response = await invoke<Response>('http/request', {
-        ...tab.spec,
-        url: withEnv(effectiveUrl(tab.spec)),
+        ...spec,
+        url: withEnv(effectiveUrl(spec)),
         queryParams: undefined,
       })
       // A fresh exchange replaces the replay's stored response.
@@ -495,7 +506,7 @@ export default function App() {
       void reload()
     } catch (error) {
       setNotice(String((error as Error).message || error))
-      patchTab(tab.key, { sending: false })
+      patchTab(tab.key, { sending: false, uploadPercent: undefined })
     }
   }
 
@@ -570,7 +581,9 @@ export default function App() {
       url: tab.spec.url,
       headers: tab.spec.headers,
       queryParams: tab.spec.queryParams,
-      body: tab.spec.body,
+      // A saved request keeps the filename it was given but not a claim that
+      // its bytes are still reachable — the picked File belongs to this session.
+      body: stripFileTokens(tab.spec.body),
       auth: tab.spec.auth,
       settings: tab.spec.settings,
     }
@@ -853,6 +866,7 @@ export default function App() {
                   t={t}
                   spec={active.spec}
                   sending={active.sending}
+                  uploadPercent={active.uploadPercent}
                   dirty={active.dirty}
                   revealBody={active.revealBody}
                   canSave={!!active.nodeId || !!active.spec.url?.trim()}
