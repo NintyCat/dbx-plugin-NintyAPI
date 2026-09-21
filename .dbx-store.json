@@ -1,11 +1,17 @@
 {
   "name": "NintyAPI",
-  "description": "在 DBX 里调试 HTTP 接口：接口集合树、完整请求历史（参数与响应一并留存）、cURL 互转、代码生成，分栏可拖拽，剪贴板与右键菜单都可用。",
+  "description": "在 DBX 里调试 HTTP 接口：接口集合树、完整请求历史（参数与响应一并留存）、文件上传（form-data 多文件、拖拽或选择文件、分片流式发送）、cURL 互转、代码生成，分栏可拖拽，剪贴板与右键菜单都可用。",
   "icon": "assets/plugin.svg",
-  "tags": ["http", "api", "rest", "testing", "debug"],
+  "tags": [
+    "http",
+    "api",
+    "rest",
+    "testing",
+    "debug"
+  ],
   "permissions": [],
   "source": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "homepage": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "license": "Apache-2.0",
-  "releaseNotes": "0.1.8：更换插件图标 —— 深色圆角底上的请求/响应双箭头，与 NintyShell 统一为同一视觉家族，小尺寸下更清晰。"
+  "releaseNotes": "0.1.9：支持文件上传 —— form-data 的一行可装多个文件，发送时展开成多个同名 part；文件由系统对话框选择、直接拖入或填路径，按 512 KiB 分片流式传给后端再发出，单文件上限 64 MiB。浏览器「Copy as cURL」导出的 multipart 请求现在能还原成 form-data 行。请求体类型标签改用协议名（none / JSON / XML / raw / x-www-form-urlencoded / form-data / binary），悬停显示 Content-Type。"
 }

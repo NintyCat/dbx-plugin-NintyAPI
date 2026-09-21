@@ -22,7 +22,7 @@ import (
 
 const (
 	pluginID        = "io.dbx.nintyapi"
-	fallbackVersion = "0.1.6"
+	fallbackVersion = "0.1.9"
 )
 
 // resolveMetadata builds the identity this sidecar announces at startup. The

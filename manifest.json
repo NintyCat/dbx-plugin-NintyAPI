@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "id": "io.dbx.nintyapi",
   "name": "NintyAPI",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "nintycat",
   "description": "Send HTTP requests, organize API collections and debug responses from DBX.",
   "icon": "assets/plugin.png",
