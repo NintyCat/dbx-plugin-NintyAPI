@@ -62,15 +62,11 @@
   --z-menu: 110;
   --z-tooltip: 120;
   --z-toast: 130;
-  /* DBX forwards its own --font-sans/--font-mono onto this document's root, so
-     these pick up the host's font choice; the stacks after the comma keep the
+  /* DBX forwards its own --font-sans onto this document's root, so body picks up
+     the interface font chosen in Settings; the stack after the comma keeps the
      plugin readable on hosts that send no font tokens (e.g. `dbx-plugin dev`).
-     The two are separate DBX settings — --font-sans is the interface font,
-     --font-mono the editor font — so each has to go where the host puts it.
-     Rule: --mono is for content the user reads as code (bodies, headers, cURL);
-     controls, badges, labels and meta lines set no family and inherit the
-     interface font from body, which is what the host's own .dbx-input does. */
-  --mono: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace);
+     No surface declares a family of its own — everything inherits from body —
+     so a single font change in DBX moves the whole workbench. */
   --get: #3d7eff;
   --post: #189a6c;
   --put: #d9860a;
@@ -159,6 +155,20 @@ button {
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease,
     color 0.12s ease;
+}
+/* The browser's own stylesheet gives <pre> a monospace family and bare form
+   controls a control font, so a surface that names no family keeps that instead
+   of inheriting — it silently ignores the font chosen in DBX. Every control
+   here carries a dbx-* class the host kit styles, except the two bare
+   textareas; .code-input is listed with its <pre> so the two layers, one
+   painted and one invisible under the caret, keep identical metrics. */
+.code-editor pre,
+.code-editor .code-input,
+.resp-body pre,
+.resp-error,
+.body-content,
+.dlg-code {
+  font-family: inherit;
 }
 /* Form controls carry the host's own classes (dbx-input, dbx-textarea,
    dbx-select) so DBX styles them like every other field in the app. This skin
@@ -1437,7 +1447,8 @@ button.send:disabled {
   min-height: 130px;
   width: 100%;
   padding: 9px 11px;
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   resize: none;
   overflow-y: scroll;
 }
@@ -1458,7 +1469,8 @@ button.send:disabled {
 .code-editor pre {
   margin: 0;
   padding: 9px 11px;
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
   height: 100%;
@@ -1476,7 +1488,8 @@ button.send:disabled {
   background: transparent;
   color: transparent;
   caret-color: var(--text);
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   padding: 9px 11px;
   resize: none;
   overflow-y: scroll;
@@ -1755,13 +1768,16 @@ body.dragging-x {
 .resp-body pre {
   margin: 0;
   padding: 10px 12px;
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   white-space: pre;
 }
 .resp-body pre.wrap {
   white-space: pre-wrap;
   word-break: break-all;
 }
+/* Errors are plain text, not code — the reset above keeps them on the host's
+   interface font. */
 .resp-error {
   color: var(--bad);
 }
@@ -1835,7 +1851,7 @@ body.dragging-x {
 .headers-table {
   width: 100%;
   border-collapse: collapse;
-  font: 12px var(--mono);
+  font-size: 12px;
 }
 .headers-table td {
   padding: 5px 12px;
@@ -1932,7 +1948,8 @@ body.dragging-x {
   color: var(--text-dim);
 }
 .dlg textarea {
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   resize: vertical;
 }
 .dlg-actions {
@@ -1951,7 +1968,8 @@ body.dragging-x {
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font: 12px/1.6 var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   max-height: 420px;
   overflow-y: scroll;
   overflow-x: auto;

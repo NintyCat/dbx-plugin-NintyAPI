@@ -32,7 +32,6 @@ const HOST_TOKENS = [
   '--radius-md',
   '--radius-lg',
   '--font-sans',
-  '--font-mono',
 ]
 
 /** Declarations only; the sheet's comments mention the same token names. */
@@ -40,40 +39,29 @@ const decls = css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /**
  * Every declaration block of one rule, joined. A selector can be declared more
- * than once — `.code-editor pre` and `.dlg textarea` both are — so looking only
- * at the first match would quietly assert nothing about the rest.
+ * than once — `.code-editor pre` and `.dlg textarea` both are — and it can also
+ * appear in a grouped selector list, so both cases have to be collected:
+ * looking only at the first match would quietly assert nothing about the rest.
  */
 function block(selector: string) {
-  const lines = decls.split('\n')
   const found: string[] = []
-  for (let at = 0; at < lines.length; at++) {
-    if (lines[at].trim() !== `${selector} {`) continue
-    let end = at
-    while (end < lines.length && !lines[end].includes('}')) end++
-    found.push(lines.slice(at, end + 1).join('\n'))
+  for (const [, selectors, body] of decls.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (selectors.split(',').some(each => each.trim() === selector)) found.push(body)
   }
   expect(found.length, `${selector} not found`).toBeGreaterThan(0)
   return found.join('\n')
 }
 
-/**
- * Which host font each surface follows. DBX drives the two from separate
- * settings — `--font-sans` is the interface font, `--font-mono` the editor
- * font — so a surface only moves when the matching setting moves. A surface in
- * the wrong list silently stops following the setting the user reached for.
- */
-const CODE_SURFACES = [
-  '.body-content',
-  '.code-editor pre',
-  '.code-editor .code-input',
-  '.resp-body pre',
-  '.headers-table',
-  '.dlg textarea',
-  '.dlg-code',
-]
+/** Every `font-family` value a rule declares, in source order. */
+const families = (body: string) =>
+  [...body.matchAll(/font-family:\s*([^;]+)/g)].map(match => match[1].trim())
 
-/** Controls, badges, labels and meta lines: they inherit the interface font. */
-const INTERFACE_SURFACES = [
+/**
+ * Surfaces that used to pick a family of their own. They inherit now, so the
+ * list is a guard: naming a family on any of them re-introduces text that
+ * ignores the font chosen in DBX — which is the bug this replaced.
+ */
+const INHERITING_SURFACES = [
   '.method',
   '.st-ok',
   '.st-bad',
@@ -85,6 +73,22 @@ const INTERFACE_SURFACES = [
   '.file-name',
   '.file-chip-name',
   '.env-row .env-base',
+  '.headers-table',
+  '.dlg textarea',
+]
+
+/**
+ * The surfaces the browser would otherwise keep on its own font: every <pre>
+ * plus the two bare textareas. Leaving `font-family` off one of these is not
+ * neutral — the UA font wins and the surface stops following DBX.
+ */
+const UA_FONT_SURFACES = [
+  '.code-editor pre',
+  '.code-editor .code-input',
+  '.resp-body pre',
+  '.resp-error',
+  '.body-content',
+  '.dlg-code',
 ]
 
 describe('the plugin reads the host’s tokens', () => {
@@ -133,29 +137,33 @@ describe('the plugin reads the host’s tokens', () => {
     expect(decls).toMatch(/button\.danger\s*\{[^}]*color:\s*var\(--bad\)/)
   })
 
-  it('takes the fonts from the host rather than a literal stack', () => {
-    // The host re-pushes its tokens whenever the font setting changes, so both
-    // families have to sit behind a var() to follow it; a literal stack here
-    // would pin the plugin to one font for the life of the tab.
+  it('takes the font from the host rather than a literal stack', () => {
+    // The host re-pushes its tokens whenever the font setting changes, so the
+    // family has to sit behind a var() to follow it; a literal stack here would
+    // pin the plugin to one font for the life of the tab.
     expect(decls).toMatch(/font:\s*13px\/1\.5\s*var\(--font-sans,/)
-    expect(decls).toMatch(/--mono:\s*var\(--font-mono,/)
   })
 
-  it('keeps the editor font for content the user reads as code', () => {
-    for (const selector of CODE_SURFACES) {
-      expect(block(selector), `${selector} should use the editor font`).toMatch(/var\(--mono\)/)
+  it('leaves the whole workbench on the interface font', () => {
+    // One family for the sheet: body reads --font-sans and nothing else names
+    // one. DBX's editor font is monospace-only, so putting the request line or
+    // the response body on it would strand them whenever the user changes the
+    // interface font — the plugin would look like it ignored the setting.
+    expect(decls).not.toMatch(/--font-mono/)
+    for (const selector of INHERITING_SURFACES) {
+      const body = block(selector)
+      expect(families(body), `${selector} must not pin a family`).toEqual([])
+      expect(body, `${selector} must not hide a family in a shorthand`).not.toMatch(
+        /(?<![-\w])font:\s/
+      )
     }
   })
 
-  it('lets controls, badges and meta lines inherit the interface font', () => {
-    // These carry no family of their own, so they follow body — and body is
-    // --font-sans. Naming --mono here would pin them to the editor font, which
-    // is what used to leave the request line behind when the interface font
-    // changed. The host's own .dbx-input/.dbx-select do the same.
-    for (const selector of INTERFACE_SURFACES) {
-      expect(block(selector), `${selector} should inherit the interface font`).not.toMatch(
-        /var\(--mono\)/
-      )
+  it('pulls the <pre> surfaces off the browser’s monospace', () => {
+    // These are the ones a missing declaration would strand: the UA stylesheet
+    // wins for <pre>, so `inherit` has to be said out loud.
+    for (const selector of UA_FONT_SURFACES) {
+      expect(families(block(selector)), `${selector} must inherit`).toEqual(['inherit'])
     }
   })
 
