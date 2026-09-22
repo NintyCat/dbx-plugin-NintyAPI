@@ -62,7 +62,15 @@
   --z-menu: 110;
   --z-tooltip: 120;
   --z-toast: 130;
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  /* DBX forwards its own --font-sans/--font-mono onto this document's root, so
+     these pick up the host's font choice; the stacks after the comma keep the
+     plugin readable on hosts that send no font tokens (e.g. `dbx-plugin dev`).
+     The two are separate DBX settings — --font-sans is the interface font,
+     --font-mono the editor font — so each has to go where the host puts it.
+     Rule: --mono is for content the user reads as code (bodies, headers, cURL);
+     controls, badges, labels and meta lines set no family and inherit the
+     interface font from body, which is what the host's own .dbx-input does. */
+  --mono: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace);
   --get: #3d7eff;
   --post: #189a6c;
   --put: #d9860a;
@@ -107,8 +115,8 @@ body,
   margin: 0;
 }
 body {
-  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font: 13px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif);
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -760,7 +768,6 @@ body.tree-dragging {
 /* Second line of a history row: when the request was sent. */
 .row-sub {
   color: var(--text-dim);
-  font-family: var(--mono);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -802,19 +809,19 @@ body.tree-dragging {
    the request line's picker, which keeps it. Declared after the .m-* colours
    so the reset wins over their backgrounds. */
 .method {
-  font: 600 11px/1 var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
   width: 52px;
   background: none;
   flex: none;
 }
 .st-ok {
   color: var(--ok);
-  font-family: var(--mono);
   font-size: 12px;
 }
 .st-bad {
   color: var(--bad);
-  font-family: var(--mono);
   font-size: 12px;
 }
 .pane-empty {
@@ -948,7 +955,6 @@ body.tree-dragging {
 .method-select .pick-trigger {
   width: 108px;
   font-weight: 600;
-  font-family: var(--mono);
   font-size: 12px;
 }
 .method-select .pick-value {
@@ -1008,7 +1014,6 @@ body.tree-dragging {
 }
 .url-input {
   flex: 1;
-  font-family: var(--mono);
   font-size: 13px;
   height: 30px;
 }
@@ -1255,7 +1260,6 @@ button.send:disabled {
 .file-chip-name {
   max-width: 220px;
   overflow: hidden;
-  font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
   text-overflow: ellipsis;
@@ -1318,7 +1322,6 @@ button.send:disabled {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
   text-align: left;
@@ -1698,7 +1701,8 @@ body.dragging-x {
   padding-bottom: 8px;
 }
 .status.pill {
-  font: 700 12px var(--mono);
+  font-size: 12px;
+  font-weight: 700;
   padding: 3px 10px;
   border-radius: 999px;
 }
@@ -1717,7 +1721,6 @@ body.dragging-x {
 .meta {
   color: var(--text-dim);
   font-size: 12px;
-  font-family: var(--mono);
 }
 .meta.warn {
   color: var(--warn);
@@ -1987,7 +1990,6 @@ body.dragging-x {
   flex: 1;
   height: 28px;
   font-size: 12px;
-  font-family: var(--mono);
 }
 .env-row .icon-btn {
   flex: none;
