@@ -13,5 +13,5 @@
   "source": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "homepage": "https://github.com/NintyCat/dbx-plugin-NintyAPI",
   "license": "Apache-2.0",
-  "releaseNotes": "0.1.9：支持文件上传 —— form-data 的一行可装多个文件，发送时展开成多个同名 part；文件由系统对话框选择、直接拖入或填路径，按 512 KiB 分片流式传给后端再发出，单文件上限 64 MiB。浏览器「Copy as cURL」导出的 multipart 请求现在能还原成 form-data 行。请求体类型标签改用协议名（none / JSON / XML / raw / x-www-form-urlencoded / form-data / binary），悬停显示 Content-Type。"
+  "releaseNotes": "0.1.11：字体跟随 DBX 的字体设置 —— 工作台改用宿主下发的字体变量，界面字体与编辑器字体各归其位：请求行、方法选择、状态与耗时等标签跟随「界面字体」，请求体、响应体、请求头表格、cURL 与代码块跟随「编辑器字体」，在设置里换字体后立即生效，不用重开标签页。此前这些位置把字体写死在插件里，换设置时工作台大半不动。"
 }
