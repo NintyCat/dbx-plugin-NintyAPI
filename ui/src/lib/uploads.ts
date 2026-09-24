@@ -1,28 +1,49 @@
 import type { T } from './i18n'
+import { hostBridge, type BridgeFileHandle } from './bridge'
 import type { BodySpec, FileRef, FormField, RequestSpec } from './types'
 
 /**
  * Files picked in the workbench, and the chunked upload that gets them to the
  * sidecar.
  *
- * Two facts shape everything here. The workbench UI runs in a sandboxed iframe,
- * so a picked File is a browser object with no path on disk — the sidecar, a
- * separate process, cannot open it. And the host bridge caps one JSON parameter
- * at 2 MiB, so the bytes cannot simply ride along with the request either. The
- * file is therefore cut into chunks that fit the bridge, reassembled on disk by
- * the sidecar, and named by the request that sends it.
+ * Three facts shape everything here. The workbench UI runs in a sandboxed
+ * iframe, so a picked File is a browser object with no path on disk — the
+ * sidecar, a separate process, cannot open it. And the host bridge caps one
+ * JSON parameter at 2 MiB, so the bytes cannot simply ride along with the
+ * request either. The file is therefore cut into chunks that fit the bridge,
+ * reassembled on disk by the sidecar, and named by the request that sends it.
+ *
+ * The third: on the desktop workbench the bytes may never be in this frame at
+ * all. An OS file dropped onto the workbench, or picked through the host's
+ * native dialog, arrives as a handle the host holds open — the chunk source is
+ * then fileTransfer.read instead of File.slice, and the base64 chunk read from
+ * the host passes through to upload/chunk untouched.
  */
 
 /** Bytes per chunk. Base64 inflates by a third, leaving ample room under 2 MiB. */
 export const UPLOAD_CHUNK_BYTES = 512 * 1024
 
 /**
+ * A file whose bytes the host holds: opened on drop or through the native
+ * picker, read chunk by chunk, released when the row carrying it is cleared.
+ */
+export type BridgePickedFile = { kind: 'bridge' } & BridgeFileHandle
+
+/** Either byte source a row's token may point at. */
+export type PickedFile = File | BridgePickedFile
+
+/** True for host-held handles, false for in-frame File objects. */
+export function isBridgeFile(file: PickedFile): file is BridgePickedFile {
+  return 'kind' in file && file.kind === 'bridge'
+}
+
+/**
  * The picked files this session knows about, keyed by the token a spec row
- * carries. Deliberately module state rather than React state: the File objects
- * are large, nothing renders them directly, and a tab that is closed should not
+ * carries. Deliberately module state rather than React state: the files are
+ * large, nothing renders them directly, and a tab that is closed should not
  * take the only reference with it.
  */
-const picked = new Map<string, File>()
+const picked = new Map<string, PickedFile>()
 
 let tokenSeq = 0
 
@@ -33,14 +54,55 @@ export function rememberFile(file: File): string {
   return token
 }
 
+/** Registers a host-held file handle and returns the token that names it. */
+export function rememberBridgeFile(handle: BridgeFileHandle): string {
+  const token = `f${++tokenSeq}-${Date.now().toString(36)}`
+  picked.set(token, { kind: 'bridge', ...handle })
+  return token
+}
+
+/**
+ * Registers either byte source and returns the complete ref a row stores. The
+ * one funnel both editors use, so chips and sizes look the same however the
+ * file arrived. The File test is instanceof, not the kind tag: pick and drop
+ * hand over raw BridgeFileHandle objects, and only rememberPicked wraps them.
+ */
+export function rememberPicked(entry: File | BridgeFileHandle): FileRef {
+  if (entry instanceof File) {
+    return {
+      token: rememberFile(entry),
+      name: entry.name,
+      contentType: entry.type || undefined,
+      size: entry.size,
+    }
+  }
+  return {
+    token: rememberBridgeFile(entry),
+    name: entry.name,
+    contentType: entry.contentType || undefined,
+    size: entry.size,
+  }
+}
+
 /** The file behind a token, or undefined once the page has been reloaded. */
-export function fileFor(token?: string): File | undefined {
+export function fileFor(token?: string): PickedFile | undefined {
   return token ? picked.get(token) : undefined
 }
 
-/** Drops a file the user cleared, so it cannot be sent by a later request. */
+/**
+ * Drops a file the user cleared, so it cannot be sent by a later request. A
+ * host-held handle is released with it: the host reclaims handles on unmount,
+ * but a session with many drops would rather not lean on that.
+ */
 export function forgetFile(token?: string): void {
-  if (token) picked.delete(token)
+  if (!token) return
+  const file = picked.get(token)
+  picked.delete(token)
+  if (file && isBridgeFile(file)) {
+    void hostBridge()
+      ?.fileTransfer?.cancel(file.handleId)
+      .catch(() => undefined)
+  }
 }
 
 /**
@@ -112,26 +174,49 @@ export type InvokeFn = <R>(method: string, params?: Record<string, unknown>) => 
  *
  * The upload is abandoned on any failure, so a chunk that never lands does not
  * leave a half-written file behind for the sidecar to time out on.
+ *
+ * A host-held handle stays open across sends: the same request can go out
+ * repeatedly, and re-reading the handle is what makes that work. It is
+ * released when the row carrying it is cleared — see forgetFile.
  */
 export async function uploadFile(
-  file: File,
+  file: PickedFile,
   invoke: InvokeFn,
   onProgress?: (sent: number, total: number) => void
 ): Promise<FileRef> {
-  const contentType = file.type || 'application/octet-stream'
+  const name = file.name
+  const size = file.size
+  const contentType =
+    (isBridgeFile(file) ? file.contentType : file.type) || 'application/octet-stream'
   const { uploadId } = await invoke<{ uploadId: string }>('upload/begin', {
-    name: file.name,
+    name,
     contentType,
-    size: file.size,
+    size,
   })
   try {
-    for (let offset = 0; offset < file.size; offset += UPLOAD_CHUNK_BYTES) {
-      const slice = file.slice(offset, offset + UPLOAD_CHUNK_BYTES)
-      const data = base64Of(await slice.arrayBuffer())
-      await invoke('upload/chunk', { uploadId, offset, data })
-      onProgress?.(Math.min(offset + slice.size, file.size), file.size)
+    if (isBridgeFile(file)) {
+      // The host hands back base64; the sidecar expects base64. The chunk
+      // crosses untouched — decoding it here would only re-encode it below.
+      let offset = 0
+      for (;;) {
+        const chunk = await hostBridge()?.fileTransfer?.read(file.handleId, offset, UPLOAD_CHUNK_BYTES)
+        if (!chunk) throw new Error('DBX 文件桥接不可用')
+        if (chunk.length > 0) {
+          await invoke('upload/chunk', { uploadId, offset, data: chunk.dataBase64 })
+          offset += chunk.length
+          onProgress?.(Math.min(offset, size), size)
+        }
+        if (chunk.eof) break
+      }
+    } else {
+      for (let offset = 0; offset < size; offset += UPLOAD_CHUNK_BYTES) {
+        const slice = file.slice(offset, offset + UPLOAD_CHUNK_BYTES)
+        const data = base64Of(await slice.arrayBuffer())
+        await invoke('upload/chunk', { uploadId, offset, data })
+        onProgress?.(Math.min(offset + slice.size, size), size)
+      }
     }
-    return { id: uploadId, name: file.name, contentType, size: file.size }
+    return { id: uploadId, name, contentType, size }
   } catch (error) {
     // Best effort: the sidecar sweeps abandoned uploads anyway, and the original
     // failure is what the user needs to see.
@@ -179,7 +264,7 @@ export async function resolveRequestFiles(
   // bytes are moving instead of looking like a request already in flight.
   if (totals > 0) onProgress?.({ sent: 0, total: totals })
   let done = 0
-  const track = async (file: File): Promise<FileRef> => {
+  const track = async (file: PickedFile): Promise<FileRef> => {
     const ref = await uploadFile(file, invoke, sent => {
       onProgress?.({ sent: done + sent, total: totals })
     })
@@ -222,7 +307,7 @@ export async function resolveRequestFiles(
 
 async function resolveField(
   field: FormField,
-  track: (file: File) => Promise<FileRef>,
+  track: (file: PickedFile) => Promise<FileRef>,
   t: T
 ): Promise<FormField> {
   // A disabled row is not sent, so it is not worth demanding files for.

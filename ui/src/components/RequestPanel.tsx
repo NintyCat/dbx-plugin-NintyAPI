@@ -4,7 +4,15 @@ import type { DictKey, T } from '../lib/i18n'
 import { formatBytes, highlightJson } from '../lib/json'
 import { highlightMarkup, tryFormatMarkup } from '../lib/markup'
 import { splitUrlQuery } from '../lib/tree'
-import { describeFile, fileFor, fileSizeOf, forgetFile, rememberFile } from '../lib/uploads'
+import { hostFileTransfer, type BridgeFileHandle } from '../lib/bridge'
+import {
+  describeFile,
+  fileFor,
+  fileSizeOf,
+  forgetFile,
+  rememberPicked,
+  rowFiles,
+} from '../lib/uploads'
 import type { BodySpec, KV, RequestSpec } from '../lib/types'
 import { METHODS } from '../lib/types'
 import { Icon } from './Icon'
@@ -34,6 +42,8 @@ type Props = {
   canSave?: boolean
   /** Bumped when an import brought a body: open the body tab on it. */
   revealBody?: number
+  /** One-line notices: a drop that the current body cannot carry, and such. */
+  onNotice?: (message: string) => void
 }
 
 const BODY_TYPES = ['none', 'json', 'xml', 'raw', 'form', 'multipart', 'binary'] as const
@@ -96,6 +106,74 @@ export function RequestPanel(props: Props) {
         : spec.queryParams,
     })
   }
+
+  // --- OS file drops from the host bridge (DBX desktop workbench) ----------
+  // The host intercepts an OS drag before any HTML5 event exists, so a drop
+  // onto this workbench arrives through fileTransfer.onDrop with no cursor
+  // position — the panel, not a cell, is what routes it. The newest spec and
+  // callbacks live in refs so the subscriptions can be installed once.
+  const [hostDrag, setHostDrag] = useState(false)
+  const specRef = useRef(spec)
+  specRef.current = spec
+  const applyRef = useRef(props.onChange)
+  applyRef.current = props.onChange
+  const noticeRef = useRef(props.onNotice)
+  noticeRef.current = props.onNotice
+
+  useEffect(() => {
+    const transfer = hostFileTransfer()
+    if (!transfer) return
+    const offDrag = transfer.onDragState(active =>
+      setHostDrag(active && bodyCanCarryFiles(specRef.current.body))
+    )
+    const offDrop = transfer.onDrop(files => {
+      setHostDrag(false)
+      if (files.length === 0) return
+      const current = specRef.current
+      const body = current.body || { type: 'none' as const }
+      const refs = files.map(rememberPicked)
+      if (body.type === 'none') {
+        // An empty body switching to form-data loses nothing, and the rows
+        // show up exactly where the user dropped the files.
+        applyRef.current({
+          ...current,
+          body: { type: 'multipart', fields: [{ key: '', enabled: true, kind: 'file', files: refs }] },
+        })
+        setTab('body')
+        return
+      }
+      if (body.type === 'multipart') {
+        const fields = [...(body.fields || [])]
+        const target = fields.findIndex(f => f.enabled !== false && f.kind === 'file')
+        if (target >= 0) {
+          fields[target] = {
+            ...fields[target],
+            kind: 'file',
+            value: undefined,
+            file: undefined,
+            files: [...rowFiles(fields[target]), ...refs],
+          }
+        } else {
+          fields.push({ key: '', enabled: true, kind: 'file', files: refs })
+        }
+        applyRef.current({ ...current, body: { ...body, fields } })
+        setTab('body')
+        return
+      }
+      if (body.type === 'binary') {
+        forgetFile(body.file?.token)
+        if (files.length > 1) noticeRef.current?.(t('dropBinaryFirst', { name: files[0].name }))
+        applyRef.current({ ...current, body: { ...body, file: refs[0] } })
+        setTab('body')
+        return
+      }
+      noticeRef.current?.(t('dropUnsupportedBody'))
+    })
+    return () => {
+      offDrag()
+      offDrop()
+    }
+  }, [t])
 
   const rows = (list?: KV[]) => list || []
   const body = spec.body || { type: 'none' as const }
@@ -377,8 +455,18 @@ export function RequestPanel(props: Props) {
           </div>
         )}
       </div>
+      {hostDrag && (
+        <div className="drop-veil" aria-hidden="true">
+          <span>{t('dropToAttach')}</span>
+        </div>
+      )}
     </section>
   )
+}
+
+/** True when a drop can be attached without throwing anything away. */
+function bodyCanCarryFiles(body: BodySpec | undefined): boolean {
+  return !body || body.type === 'none' || body.type === 'multipart' || body.type === 'binary'
 }
 
 function count(list?: KV[]): string {
@@ -410,22 +498,31 @@ function BinaryBody({
   // keeps those bodies editable, and the first keystroke migrates it.
   const path = ref?.path ?? body.content ?? ''
 
-  const choose = (file?: File) => {
-    if (!file) return
+  const choose = (entry?: File | BridgeFileHandle) => {
+    if (!entry) return
     forgetFile(ref?.token)
     onChange({
       ...body,
-      file: {
-        token: rememberFile(file),
-        name: file.name,
-        contentType: file.type || undefined,
-        size: file.size,
-      },
+      file: rememberPicked(entry),
     })
   }
 
   // A drop needs no permission, so it is the route that still works if the
-  // host's sandbox refuses to open a native picker.
+  // host's sandbox refuses to open a native picker. On the DBX desktop
+  // workbench the native picker runs through the host's fileTransfer instead,
+  // and drops arrive at panel level — see RequestPanel's onDrop.
+  const pick = () => {
+    const transfer = hostFileTransfer()
+    if (!transfer) {
+      inputRef.current?.click()
+      return
+    }
+    void transfer
+      .pick({ multiple: false })
+      .then(handles => choose(handles[0]))
+      .catch(() => undefined)
+  }
+
   const dropProps = {
     onDragOver: (event: React.DragEvent) => {
       if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return
@@ -463,7 +560,7 @@ function BinaryBody({
           <button
             className="ghost file-name"
             title={picked ? t('chooseFileHint') : label}
-            onClick={() => inputRef.current?.click()}
+            onClick={pick}
           >
             {label}
           </button>
@@ -489,7 +586,7 @@ function BinaryBody({
         <button
           className={`ghost file-pick${over ? ' file-pick--over' : ''}`}
           title={t('chooseFileHint')}
-          onClick={() => inputRef.current?.click()}
+          onClick={pick}
           {...dropProps}
         >
           <Icon name="folder" size={13} /> {t('chooseFile')}

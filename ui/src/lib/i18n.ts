@@ -104,6 +104,15 @@ const dict = {
   ],
   fileFromPath: ['来自路径', 'from path'],
   fileNeedsPick: ['需重新选择', 'pick again'],
+  dropToAttach: ['松开以附加文件', 'Release to attach files'],
+  dropUnsupportedBody: [
+    '当前请求体类型无法携带文件：请先切换到 form-data 或 binary',
+    'The current body type cannot carry files — switch to form-data or binary first',
+  ],
+  dropBinaryFirst: [
+    'binary 请求体只使用第一个文件「{name}」，其余已忽略',
+    'The binary body uses only the first file "{name}"; the rest were ignored',
+  ],
   binaryPath: ['文件路径', 'File path'],
   binaryHint: [
     '选择文件会以文件内容发送；填写路径则从 DBX 所在机器读取该文件。',

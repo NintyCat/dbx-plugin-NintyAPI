@@ -11,6 +11,39 @@ type Context = {
   connectionName?: string
   [key: string]: unknown
 }
+
+/**
+ * A file the host opened for the plugin: an OS drop onto the workbench or a
+ * native picker ride. The bytes live behind the handle — read them in chunks
+ * through fileTransfer.read, and cancel the handle when done.
+ */
+export type BridgeFileHandle = {
+  handleId: string
+  name: string
+  size: number
+  contentType?: string
+}
+
+/**
+ * Host-side file access. Only the DBX desktop workbench lends it: the sandbox
+ * iframe can neither see OS drops nor open a native picker, so the host opens
+ * handles on the plugin's behalf and streams bytes across the bridge. Hosts
+ * without it leave the field undefined and the HTML5 routes keep working.
+ */
+export type BridgeFileTransfer = {
+  pick(options?: { multiple?: boolean }): Promise<BridgeFileHandle[]>
+  read(
+    handleId: string,
+    offset: number,
+    length?: number
+  ): Promise<{ dataBase64: string; length: number; eof: boolean }>
+  cancel(handleId: string): Promise<unknown>
+  /** True while an OS drag hovers anywhere over this workbench. */
+  onDragState(fn: (active: boolean) => void): () => void
+  /** Files dropped onto the workbench, already opened for this plugin. */
+  onDrop(fn: (files: BridgeFileHandle[]) => void): () => void
+}
+
 type Bridge = {
   ready: Promise<void>
   context?: Context
@@ -24,6 +57,7 @@ type Bridge = {
   onContext?(fn: (context: Context) => void): () => void
   /** DBX ≥ 0.6.15 lends the plugin the host's own clipboard writer. */
   copy?(text: string): Promise<unknown>
+  fileTransfer?: BridgeFileTransfer
 }
 
 const bridge = () =>
@@ -32,6 +66,11 @@ const bridge = () =>
 /** The host bridge, for helpers that work outside React. */
 export function hostBridge(): Bridge | undefined {
   return bridge()
+}
+
+/** The host's file surface, when the workbench lends one. */
+export function hostFileTransfer(): BridgeFileTransfer | undefined {
+  return bridge()?.fileTransfer
 }
 
 /** Call a backend RPC without going through the hook. */

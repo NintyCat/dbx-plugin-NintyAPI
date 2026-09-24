@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
 import type { T } from '../lib/i18n'
+import { hostFileTransfer, type BridgeFileHandle } from '../lib/bridge'
 import { formatBytes } from '../lib/json'
 import {
   describeFile,
   fileFor,
   forgetFile,
   isFileRow,
-  rememberFile,
+  rememberPicked,
   rowFiles,
   rowSizeOf,
 } from '../lib/uploads'
@@ -57,19 +58,13 @@ export function FormDataEditor({ t, rows, onChange, allowFiles = true }: Props) 
    * Adds files to a row, however they arrived. Picking or dropping more appends
    * rather than replaces, so a field can be filled from several folders without
    * having to select everything in one go; each file is removed on its own.
+   * A File carries its bytes in this frame; a handle carries the host's —
+   * rememberPicked mints the same kind of ref for both.
    */
-  const attach = (index: number, added: File[]) => {
+  const attach = (index: number, added: Array<File | BridgeFileHandle>) => {
     const row = rows[index]
     if (!row || added.length === 0) return
-    const files = [
-      ...rowFiles(row),
-      ...added.map(file => ({
-        token: rememberFile(file),
-        name: file.name,
-        contentType: file.type || undefined,
-        size: file.size,
-      })),
-    ]
+    const files = [...rowFiles(row), ...added.map(rememberPicked)]
     update(index, { kind: 'file', value: undefined, file: undefined, files })
   }
 
@@ -236,10 +231,11 @@ function UnsendableFiles({ t, rows }: { t: T; rows: FormField[] }) {
  * Each row owns its own hidden input, so a choice is attributed by the DOM
  * rather than by remembering which button was pressed last.
  *
- * A file can also be dropped onto the cell. That route exists because the
- * workbench runs in a sandboxed iframe where a native picker is the host's
- * call, while a drop event needs no permission at all — so one of the two
- * always works.
+ * A file can also be dropped onto the cell. That route serves hosts without a
+ * file bridge (the standalone dev host, a plain browser page). On the DBX
+ * desktop workbench the OS drag never reaches this frame as HTML5 events —
+ * the host intercepts it — so drops there arrive through the panel-level
+ * fileTransfer.onDrop instead, and the picker rides the same bridge.
  *
  * A row saved from a cURL import carries a path instead of a picked file, and
  * the path is shown as-is — those requests keep sending without the user having
@@ -255,13 +251,32 @@ function FileCell({
 }: {
   t: T
   row: FormField
-  onAttach: (files: File[]) => void
+  onAttach: (files: Array<File | BridgeFileHandle>) => void
   onRemoveFile: (fileIndex: number) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const files = rowFiles(row)
   const size = rowSizeOf(files)
+
+  /**
+   * Opens the native picker through the host when it lends fileTransfer — the
+   * sandboxed iframe cannot raise one itself — and falls back to a plain input
+   * where it does not (the standalone dev host, a plain browser page).
+   */
+  const pick = () => {
+    const transfer = hostFileTransfer()
+    if (!transfer) {
+      inputRef.current?.click()
+      return
+    }
+    void transfer
+      .pick({ multiple: true })
+      .then(handles => {
+        if (handles.length > 0) onAttach(handles)
+      })
+      .catch(() => undefined)
+  }
 
   const dropProps = {
     onDragOver: (event: React.DragEvent) => {
@@ -303,7 +318,7 @@ function FileCell({
         <button
           className={`ghost file-pick${over ? ' file-pick--over' : ''}`}
           title={t('chooseFileHint')}
-          onClick={() => inputRef.current?.click()}
+          onClick={pick}
           {...dropProps}
         >
           {t('chooseFile')}
@@ -335,7 +350,7 @@ function FileCell({
             className="ghost file-add"
             title={t('chooseFileHint')}
             aria-label={t('addFile')}
-            onClick={() => inputRef.current?.click()}
+            onClick={pick}
           >
             +
           </button>

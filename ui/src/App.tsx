@@ -870,6 +870,7 @@ export default function App() {
                   dirty={active.dirty}
                   revealBody={active.revealBody}
                   canSave={!!active.nodeId || !!active.spec.url?.trim()}
+                  onNotice={setNotice}
                   onChange={spec => patchTab(active.key, { spec, dirty: true })}
                   onSend={() => void send(active)}
                   onSave={() => saveSpec(active)}

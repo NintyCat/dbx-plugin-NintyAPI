@@ -944,6 +944,7 @@ body.tree-dragging {
   flex-direction: column;
 }
 .req {
+  position: relative;
   padding: 12px 14px 4px;
   display: flex;
   flex-direction: column;
@@ -951,6 +952,25 @@ body.tree-dragging {
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
+}
+/* Shown while an OS drag hovers over the workbench (host bridge dragstate):
+   the release target is the panel, since a bridge drop carries no cursor
+   position to place it with. pointer-events none keeps it from swallowing
+   anything should the host ever deliver a drop without the veil clearing. */
+.drop-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: var(--accent-soft);
+  border: 1.5px dashed var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
 }
 /* The frame holds its natural height: a pane too short for it scrolls rather
    than squeezing the strip down to a sliver. */
